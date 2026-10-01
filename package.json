@@ -1,0 +1,28 @@
+{
+  "name": "kresleni-hudby",
+  "version": "0.1.0",
+  "description": "Vizualizace hudby — interaktivní plátno s mizející stopou a particle efekty",
+  "author": "Tobias Otta",
+  "private": true,
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite build && electron .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "electron-vite build && node tests/e2e/smoke.mjs"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "^44.5.1",
+    "electron-vite": "^5.0.0",
+    "playwright-core": "^1.63.0",
+    "typescript": "^7.0.2",
+    "vite": "^7.0.0",
+    "vitest": "^5.0.3"
+  }
+}

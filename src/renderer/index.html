@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="cs">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws:"
+    />
+    <title>Kreslení hudby</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="group">
+        <button id="btn-new" title="Nový projekt (Ctrl+N)">Nový</button>
+        <button id="btn-open" title="Otevřít projekt (Ctrl+O)">Otevřít…</button>
+        <button id="btn-save" title="Uložit projekt (Ctrl+S)">Uložit</button>
+        <button id="btn-save-as" title="Uložit projekt jako (Ctrl+Shift+S)">Uložit jako…</button>
+        <span id="save-status" class="muted small"></span>
+      </div>
+      <div class="group">
+        <button id="btn-import" title="Importovat audio soubor">Importovat audio…</button>
+        <span id="audio-name" class="muted">Žádné audio</span>
+      </div>
+      <div class="spacer"></div>
+      <button id="btn-export" class="primary" title="Exportovat video (Ctrl+E)">Exportovat video…</button>
+    </header>
+
+    <main>
+      <section id="stage-wrap" class="stage-wrap">
+        <canvas id="stage"></canvas>
+        <div id="countdown" class="countdown" hidden></div>
+        <div id="draw-badge" class="draw-badge" hidden>Kreslení pohybem zapnuto</div>
+      </section>
+
+      <aside class="panel">
+        <h2>Vrstva</h2>
+        <label class="field">
+          <span>Název</span>
+          <input id="layer-name" type="text" maxlength="60" />
+        </label>
+
+        <h2>Čára</h2>
+        <label class="field row">
+          <span>Barva čáry</span>
+          <input id="line-color" type="color" />
+        </label>
+        <div class="field">
+          <span>Tloušťka</span>
+          <div class="segmented" role="radiogroup">
+            <label><input type="radio" name="width-mode" value="fixed" /><span>Fixní</span></label>
+            <label><input type="radio" name="width-mode" value="dynamic" /><span>Podle rychlosti</span></label>
+          </div>
+        </div>
+        <label class="field">
+          <span><span id="width-label">Tloušťka</span> <output id="width-out"></output></span>
+          <input id="width" type="range" min="1" max="60" step="1" />
+        </label>
+        <label class="field">
+          <span>Vyhlazení <output id="smoothing-out"></output></span>
+          <input id="smoothing" type="range" min="0" max="1" step="0.05" />
+        </label>
+        <label class="field">
+          <span>Doba mizení <output id="fade-out"></output></span>
+          <input id="fade" type="range" min="0.5" max="20" step="0.5" />
+        </label>
+        <label class="field">
+          <span>Záře <output id="glow-out"></output></span>
+          <input id="glow" type="range" min="0" max="1" step="0.05" />
+        </label>
+
+        <h2>Ohňostroj</h2>
+        <label class="field row">
+          <span>Barva ohňostroje</span>
+          <input id="firework-color" type="color" />
+        </label>
+        <label class="field">
+          <span>Velikost <output id="firework-size-out"></output></span>
+          <input id="firework-size" type="range" min="0.3" max="3" step="0.1" />
+        </label>
+
+        <h2>Záznam</h2>
+        <div class="group">
+          <button id="btn-undo" title="Zpět (Ctrl+Z)">Zpět</button>
+          <button id="btn-redo" title="Znovu (Ctrl+Y)">Znovu</button>
+          <button id="btn-clear" class="danger" title="Smazat vše nahrané v této vrstvě">Vymazat</button>
+        </div>
+        <p id="layer-stats" class="muted small"></p>
+
+        <h2>Ovládání</h2>
+        <ul class="help small">
+          <li><kbd>tažení</kbd> kreslí čáru</li>
+          <li>držet <kbd>D</kbd> + pohyb kreslí bez tlačítka (touchpad)</li>
+          <li><kbd>T</kbd> zapne / vypne kreslení pohybem natrvalo</li>
+          <li><kbd>klik</kbd> / <kbd>pravé tl.</kbd> / <kbd>F</kbd> ohňostroj</li>
+          <li><kbd>mezerník</kbd> přehrát / pozastavit</li>
+          <li><kbd>R</kbd> nahrávání (po odpočtu 3 s)</li>
+          <li><kbd>F11</kbd> plátno na celou obrazovku</li>
+          <li><kbd>Home</kbd> na začátek</li>
+        </ul>
+        <p class="muted small">Mimo nahrávání se kreslí jen nanečisto — nic se neukládá.</p>
+      </aside>
+    </main>
+
+    <footer class="transport">
+      <div class="controls">
+        <button id="btn-start" title="Na začátek (Home)">⏮</button>
+        <button id="btn-play" title="Přehrát / pozastavit (mezerník)">▶</button>
+        <button id="btn-record" class="record" title="Nahrávat (R)">● Nahrát</button>
+        <span id="time" class="time">0:00.0 / 0:00.0</span>
+        <div class="spacer"></div>
+        <button id="btn-fullscreen" title="Plátno na celou obrazovku (F11)">⛶ Celá obrazovka</button>
+        <label class="volume" title="Hlasitost">
+          <span class="muted small">Hlasitost</span>
+          <input id="volume" type="range" min="0" max="1" step="0.01" value="1" />
+        </label>
+      </div>
+      <canvas id="timeline"></canvas>
+    </footer>
+
+    <dialog id="export-dialog">
+      <h2>Export videa</h2>
+      <p id="export-status"></p>
+      <progress id="export-progress" value="0" max="1"></progress>
+      <div class="group end">
+        <button id="export-show" hidden>Zobrazit ve složce</button>
+        <button id="export-cancel">Zrušit</button>
+      </div>
+    </dialog>
+
+    <div id="loading" class="loading" hidden>
+      <div class="loading-box">
+        <div class="spinner"></div>
+        <span id="loading-text"></span>
+      </div>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+    <div id="locked-cursor" class="locked-cursor" hidden></div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
