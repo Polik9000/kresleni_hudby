@@ -2,9 +2,10 @@
 
 Desktopová aplikace (Electron + TypeScript) pro kreslení vizuálního doprovodu k hudbě a export
 do MP4. Koncept a fázování: `vizualizace_hudby_koncept_v3.md`. Ovládání a spuštění: `README.md`.
-S uživatelem se komunikuje česky, UI aplikace je česky.
+S uživatelem se komunikuje česky, UI aplikace je česky. README je uživatelská dokumentace
+(ovládání, nastavení, export, plán). Po změně chování ho aktualizuj spolu s tímto souborem.
 
-## Kde jsme (stav k 1. 10. 2026)
+## Kde jsme (stav k 4. 10. 2026)
 
 **Fáze 1 (MVP) je hotová** a rozšířená o věci, které si uživatel vyžádal při zkoušení.
 **Další krok: fáze 2** (víc vrstev, overdub, skrytí/smazání vrstvy, posun vrstvy v čase,
@@ -37,7 +38,10 @@ a s perem/tabletem, kreslení `D`/`T` na skutečném touchpadu, překryv načít
   a rozhraní IPC `KhApi`. Souřadnice jsou v logickém prostoru 1920×1080, časy v sekundách skladby.
 - `src/shared/project.ts` — výchozí hodnoty, (de)serializace `.khproj`. Body tahu jsou v souboru
   jako plochá pole `[x, y, t, …]`. Chybějící položky stylu se doplní z `DEFAULT_STYLE`.
-- `src/main/index.ts` — okno, dialogy, čtení/zápis souborů (zápis přes dočasný soubor), záloha.
+- `src/main/index.ts` — okno (bez nativního menu, `F12` = devtools), dialogy, čtení/zápis souborů
+  (zápis přes dočasný soubor, zápisy jdou za sebou), záloha `neulozeny-projekt.khproj` v `userData`.
+  Audio projektu se hledá nejdřív přes `relativePath` (doplňuje ho hlavní proces při uložení),
+  pak na absolutní cestě. Podporované přípony audia: `AUDIO_EXTENSIONS`.
 - `src/main/exporter.ts` — ffmpeg (`ffmpeg-static`): surové RGBA snímky na stdin + audio jako
   druhý vstup. Formáty jsou tabulka `FORMATS`; nový formát = nová položka.
 - `src/preload/index.ts` — most `window.kh` (contextIsolation, sandbox).
