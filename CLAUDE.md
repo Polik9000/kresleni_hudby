@@ -156,6 +156,12 @@ npm run test:e2e   # celá pipeline ve skutečné aplikaci (Playwright + Electro
 
 E2E test běží se ztlumeným zvukem a vlastní složkou dat (`--mute-audio`, `--user-data-dir`), aby
 nehrál testovací tón a nesahal na zálohu uživatele. Po změně chování ho aktualizuj a spusť.
+Testovací skladba má 8 s a nahrávání končí s ní: každý pohyb myši z Playwrightu trvá ~60 ms
+(na vytíženém počítači i 2–3× déle), takže kreslení během nahrávání musí být krátké. Proto se
+nahrává ve dvou průchodech a `assertRecording` hlídá, že skladba ještě hraje; nové kreslení
+při nahrávání přidávej spíš jako další průchod (od `Home`) než do stávajícího.
+Okno testu bere fokus: když uživatel během běhu píše nebo hýbe myší, test spadne (nesouvisí
+se změnou) — E2E pouštěj, když se na počítači nepracuje (`GetLastInputInfo`).
 Návratový kód kontroluj přímo (ne přes `| tail`, roura ho schová).
 
 ## Konvence

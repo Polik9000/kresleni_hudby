@@ -64,6 +64,14 @@ const waitFor = async (condition, message) => {
 }
 const savedProject = () => JSON.parse(readFileSync(paths.project, 'utf8'))
 const savedLayer = () => savedProject().layers[0]
+// Nahrávání končí se skladbou. Na vytíženém počítači trvá každý pohyb myši déle a test by
+// mohl kreslit až po konci skladby (do kreslení nanečisto) — pak má selhat srozumitelně.
+// Okno testu bere fokus: skutečná klávesnice a myš (mezerník, R, pohyb nad plátnem) test rozbijí.
+const assertRecording = async (page, step) =>
+  assert.ok(
+    await page.evaluate(() => document.body.classList.contains('recording')),
+    `skladba dohrála dřív, než test stihl ${step} (počítač je vytížený, nebo do okna testu zasáhla skutečná myš či klávesnice)`
+  )
 
 let recoveryJson = null
 let app = await launch()
@@ -107,7 +115,8 @@ try {
   await page.mouse.up()
   assert.match(await page.textContent('#layer-stats'), /0 tahů, 0 ohňostrojů/)
 
-  // --- Nahrávání: vlnovka, klik, pravé tlačítko, klávesa F ---
+  // --- Nahrávání ve dvou průchodech: 1. vlnovka, 2. kreslení klávesou D, klik, pravé tlačítko, F ---
+  // Každý průchod má celou skladbu, aby se kreslení stihlo i na vytíženém počítači.
   // Odpočet jde zrušit; napodruhé doběhne a teprve pak se nahrává.
   await page.click('#btn-record')
   assert.equal(await page.textContent('#countdown'), '3')
@@ -123,14 +132,21 @@ try {
   await page.waitForTimeout(300)
   await page.mouse.move(...at(0.1, 0.5))
   await page.mouse.down()
-  for (let i = 1; i <= 60; i++) {
-    const f = i / 60
+  for (let i = 1; i <= 40; i++) {
+    const f = i / 40
     // První polovina pomalu, druhá rychle — ověří dynamickou tloušťku.
     await page.mouse.move(...at(0.1 + 0.8 * f * f, 0.5 + 0.3 * Math.sin(f * Math.PI * 4)))
     await page.waitForTimeout(f < 0.5 ? 25 : 6)
   }
   await page.mouse.up()
+  await assertRecording(page, 'dokreslit vlnovku')
+  await page.keyboard.press('r')
+  assert.match(await page.textContent('#layer-stats'), /1 tahů, 0 ohňostrojů/)
 
+  await page.keyboard.press('Home')
+  await page.click('#btn-record')
+  await page.waitForFunction(() => document.body.classList.contains('recording'))
+  await page.waitForTimeout(300)
   // Kreslení bez tlačítka (touchpad): držená klávesa D + pohyb = tah, klik během toho se ignoruje.
   await page.mouse.move(...at(0.2, 0.85))
   await page.keyboard.down('d')
@@ -143,6 +159,7 @@ try {
   // Stisk bez pohybu nesmí zanechat tečku; pohyb bez klávesy nekreslí.
   await page.keyboard.press('d')
   await page.mouse.move(...at(0.6, 0.6), { steps: 3 })
+  await assertRecording(page, 'kreslit klávesou D')
   assert.match(await page.textContent('#layer-stats'), /2 tahů, 0 ohňostrojů/)
 
   await page.mouse.click(...at(0.3, 0.25))
@@ -151,6 +168,7 @@ try {
   await page.keyboard.press('f')
   await page.waitForTimeout(250)
   await page.screenshot({ path: join(out, 'recording.png') })
+  await assertRecording(page, 'přidat ohňostroje')
 
   // Nahrávání skončí samo, když skladba dohraje.
   await page.waitForFunction(() => !document.body.classList.contains('recording'), null, { timeout: 15000 })
@@ -163,9 +181,12 @@ try {
     return JSON.parse(recoveryJson).layers[0].fireworks.length === 3
   }, 'záloha neuloženého projektu s nahrávkou nevznikla')
 
-  // --- Zpět / znovu ---
+  // --- Zpět / znovu: každý průchod nahrávání je jeden krok ---
+  await page.keyboard.press('Control+z')
+  assert.match(await page.textContent('#layer-stats'), /1 tahů, 0 ohňostrojů/)
   await page.keyboard.press('Control+z')
   assert.match(await page.textContent('#layer-stats'), /0 tahů, 0 ohňostrojů/)
+  await page.keyboard.press('Control+y')
   await page.keyboard.press('Control+y')
   assert.match(await page.textContent('#layer-stats'), /2 tahů, 3 ohňostrojů/)
 
@@ -186,7 +207,7 @@ try {
 
   // --- Automatické ukládání: změny se samy propíšou do souboru projektu ---
   await page.keyboard.press('Control+z')
-  await waitFor(() => savedLayer().strokes.length === 0, 'automatické uložení po kroku Zpět neproběhlo')
+  await waitFor(() => savedLayer().strokes.length === 1, 'automatické uložení po kroku Zpět neproběhlo')
   await page.keyboard.press('Control+y')
   await page.fill('#smoothing', '0.8')
   await waitFor(
@@ -290,7 +311,8 @@ try {
 
   // Přiblížená osa: stejné tažení posune vrstvu o polovinu méně; "Celá" vrátí celou skladbu.
   await page.click('#btn-zoom-in')
-  assert.equal(await page.textContent('#zoom-label'), '2×')
+  // Popisek přiblížení se překresluje až v dalším snímku.
+  await page.waitForFunction(() => document.getElementById('zoom-label').textContent === '2×')
   await page.keyboard.down('Shift')
   await page.mouse.move(lanes.x + lanes.width * 0.5, laneY)
   await page.mouse.down()

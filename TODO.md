@@ -14,7 +14,7 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
 
 ## Úkoly
 
-### 1. [ ] Stabilita E2E testu — S
+### 1. [x] Stabilita E2E testu — S
 - **Cíl:** E2E test jednou (27. 10.) selhal v kroku kreslení klávesou `D`:
   `smoke.mjs:146` čekal „2 tahů“, dostal „1 tahů“. Napodruhé prošel. Najít příčinu
   a odstranit ji. Hypotéza: krátké testovací audio dohraje a nahrávání skončí dřív, než se
@@ -22,6 +22,21 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
 - **Soubory:** `tests/e2e/smoke.mjs`, případně `src/renderer/src/main.ts` (jen pokud jde o chybu aplikace).
 - **Hotovo, když:** `npm run test:e2e` projde 5× za sebou; v poznámce je popsaná příčina
   (nebo že se nepodařilo reprodukovat a co se zpevnilo).
+- **Poznámka (27. 10. 2026):** Hypotéza potvrzena a chyba reprodukována. Každý `mouse.move`
+  z Playwrightu trvá ~65 ms (čeká na snímek aplikace), takže vlnovka (60 pohybů) zabrala
+  4,3 s z 8 s skladby a celé kreslení do `F` 5,4 s. Pod umělou zátěží CPU (32 / 48 procesů
+  s nekonečnou smyčkou) to bylo 7,2 s / 10 s — skladba dohrála, nahrávání skončilo samo a tah
+  přes `D` šel do kreslení nanečisto → „1 tahů“, přesně jako 27. 10. Chyba aplikace to není.
+  Oprava jen v testu: nahrává se ve dvou průchodech, každý od začátku skladby (1. vlnovka
+  se 40 pohyby, ukončená `R`; 2. `D`, kliky, `F`, konec se skladbou), každý tedy má asi
+  trojnásobnou rezervu. `assertRecording` při předčasném konci skladby selže se srozumitelnou
+  hláškou. Test teď ověřuje i to, že každý průchod je jeden krok Zpět; je o ~6 s delší.
+  Navíc opraven souběh: `#zoom-label` se překresluje až v dalším snímku, test teď čeká.
+  Druhá příčina pádů: **skutečná myš a klávesnice** — okno testu bere fokus, takže psaní nebo
+  pohyb myši během běhu test rozbije (mezerník/R ukončí nahrávání, pohyb posune tažení).
+  Při ověřování 3 z 5 běhů spadly právě takhle (uživatel psal). 5 běhů v klidu (bez
+  vstupu, ověřeno přes `GetLastInputInfo`) prošlo 5× za sebou, ~65 s na běh. Pod extrémní
+  zátěží (> 6× zpomalení) test pořád může nestihnout — pak to řekne `assertRecording`.
 
 ### 2. [ ] Jednotkové testy režimu úprav — M — [PARALELNĚ]
 - **Cíl:** pokrýt části režimu úprav, které zkoušel jen E2E nebo nikdo: táhla (zrcadlení,
