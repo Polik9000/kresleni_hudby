@@ -2,14 +2,47 @@
 
 Desktopová aplikace (Electron + TypeScript) pro kreslení vizuálního doprovodu k hudbě a export
 do MP4. Koncept a fázování: `vizualizace_hudby_koncept_v3.md`. Ovládání a spuštění: `README.md`.
-S uživatelem se komunikuje česky, UI aplikace je česky.
+S uživatelem se komunikuje česky, UI aplikace je česky. README je uživatelská dokumentace
+(ovládání, nastavení, export); po změně chování ho aktualizuj spolu s tímto souborem.
 
-## Kde jsme (stav k 2. 10. 2026)
+## Samostatná práce (platí pro každou session)
 
-**Fáze 1 (MVP), 2 (vrstvy, export) a 3 (úpravy křivek) jsou hotové.** Fáze 2 a 3 uživatel
-skoro nezkoušel („dá se to upravit i pak“) — čekej připomínky k ovládání vrstev a režimu úprav.
-**Další krok:** připomínky ze zkoušení, odložené věci níže, případně nezávazný nápad „pohyblivé
-plátno“ z konceptu.
+**Pracuj podle `TODO.md`, po dokončení úkolu ho odškrtni, zapiš krátkou poznámku a commitni.
+Když narazíš na rozhodnutí, které nejde odvodit, zapiš ho do sekce Blokované a pokračuj dalším
+úkolem místo čekání.**
+
+Uživatel řídí práci z mobilu krátkými pokyny typu „pokračuj bodem 4“ — číslo je číslo úkolu
+v `TODO.md`. „Pokračuj“ bez čísla = první neodškrtnutý úkol, který není blokovaný.
+
+Postup u každého úkolu:
+1. Přečti úkol v `TODO.md` a sekci „Rozhodnutí“ tamtéž. Nedělej víc, než úkol říká; nápady
+   navíc zapiš do `TODO.md` jako nový úkol na konec seznamu.
+2. Před změnou ověř, že `main` je čistý a aktuální (`git status`, `git pull --ff-only`).
+3. Implementuj včetně testů. Akceptační kritérium úkolu + `npm run typecheck`, `npm test`
+   a `npm run test:e2e` musí projít. E2E nikdy nepouštěj dvakrát souběžně ve stejné složce.
+4. Aktualizuj README (ovládání) a tento soubor (stav, architektura, pasti), pokud se změnily.
+5. V `TODO.md` změň `[ ]` na `[x]` a pod úkol připiš `- **Poznámka (datum):**` — co se udělalo,
+   co se nepodařilo, co je potřeba ověřit ručně.
+6. Commit do `main` (česky, první řádek „Úkol N: …“, attribution řádek na konci) a `git push`.
+   Commituj jen soubory, které úkol změnil; `tests/e2e/output` se necommituje.
+
+Když se něco nedaří:
+- Test selže a příčina není v tvé změně → zkus ho jednou znovu; když selže znovu, nepřepisuj
+  test, aby prošel. Zapiš to do „Blokované“ a pokračuj jiným úkolem.
+- E2E otevírá skutečné okno aplikace; pokud padá na věcech mimo úkol (zamčená obrazovka,
+  ztráta fokusu), zapiš to do „Blokované“ s výpisem chyby.
+- Nedokončenou práci necommituj do `main`. Raději ji vrať (`git stash` s popisem úkolu)
+  a do poznámky úkolu napiš, kde skončila.
+- Nikdy: `git push --force`, přepisování historie, mazání větví (kromě úkolu, který to výslovně
+  říká), změny globální konfigurace gitu, `npm audit fix --force`, upgrade hlavních verzí
+  závislostí bez úkolu.
+
+## Kde jsme (stav k 27. 10. 2026)
+
+**Fáze 1 (MVP), 2 (vrstvy, export) a 3 (úpravy křivek) jsou hotové a commitnuté.**
+**Další krok: `TODO.md`** — na řadě je spolehlivost a testy, pak připomínka uživatele
+k režimu úprav (časové okno), dodělání fáze 3 a odložené vyhlazení klávesou `S`.
+Fáze 2 a 3 uživatel skoro nezkoušel — čekej další připomínky.
 
 Hotovo:
 - import a přehrávání audia (s překryvem „Načítám audio…“), časová osa s waveformem a přetáčením
@@ -33,15 +66,8 @@ Hotovo:
   (Alt = roh), výběr úseku mezi dvěma uzly (Shift+klik), Ctrl+C/Ctrl+V na místo přehrávací hlavy,
   Delete, pole „Začátek (s)“ pro posun vybraného prvku v čase; vše jde vrátit přes Zpět
 
-Ve fázi 3 záměrně chybí: přidání a smazání jednotlivého uzlu, rozdělení čáry, výběr víc prvků
-najednou, úpravy ve víc vrstvách zároveň.
-
-Odloženo na další verzi (uživatel o to stál, ale ne hned):
-- vyhlazení přepínané během kreslení: nízký základ (~5 %) a při držení klávesy jiná hodnota
-  (0 % nebo nastavené minimum) jen pro právě kreslený úsek — vyhlazení tedy po úsecích, ne po vrstvě
-- jemnější kroky posuvníků: vyhlazení bez skoků po 5 %, doba mizení bez skoků po 0,5 s
-- nabídnuto a nerozhodnuto: metronom (tiché klepání jen při nahrávání), přehrání 3 s hudby během
-  odpočtu, instalátor `.exe`
+Ve fázi 3 zatím chybí přidání/smazání uzlu, rozdělení čáry a výběr víc prvků (jsou v `TODO.md`).
+Úpravy ve víc vrstvách zároveň, metronom a instalátor `.exe` uživatel teď nechce.
 
 Neověřeno na skutečném hardwaru (jen simulovanou myší v testu): zámek kurzoru s druhým monitorem
 a s perem/tabletem, kreslení `D`/`T` na skutečném touchpadu, překryv načítání u dlouhé skladby.
@@ -116,13 +142,40 @@ na krátkém klipu); E2E test exportuje 1080p H.264 a 720p WebM.
 
 ## Příkazy
 
+Windows, Node.js 24, npm 11. Závislosti jsou nainstalované (`npm install` jen po změně `package.json`).
+
 ```
+npm run build      # sestavit do out/ (electron-vite)
 npm start          # sestavit a spustit
 npm run dev        # vývoj s automatickým obnovením
-npm run typecheck
-npm test           # jednotkové testy (vitest)
-npm run test:e2e   # celá pipeline ve skutečné aplikaci (Playwright + Electron), výstupy v tests/e2e/output
+npm run typecheck  # tsc --noEmit
+npm test           # jednotkové testy (vitest, tests/*.test.ts), ~1 s
+npm run test:e2e   # celá pipeline ve skutečné aplikaci (Playwright + Electron), ~1–2 min,
+                   # výstupy v tests/e2e/output; úspěch = konec "OK — obnovení ze zálohy" a exit 0
 ```
 
 E2E test běží se ztlumeným zvukem a vlastní složkou dat (`--mute-audio`, `--user-data-dir`), aby
 nehrál testovací tón a nesahal na zálohu uživatele. Po změně chování ho aktualizuj a spusť.
+Návratový kód kontroluj přímo (ne přes `| tail`, roura ho schová).
+
+## Konvence
+
+- TypeScript strict, vanilla DOM bez frameworku; žádné nové runtime závislosti bez úkolu.
+- Názvy v kódu anglicky, komentáře, texty UI, testy (`describe`/`it`), commity a dokumentace česky.
+- Komentáře jen tam, kde vysvětlují proč; krátké, ve stylu existujícího kódu.
+- Vykreslení (`render/`) zůstává čistá funkce (vrstvy, čas) — žádný stav sezení, žádné `Date.now()`
+  ani `Math.random()`; náhodnost jen z PRNG se seedem.
+- Matematiku a datové operace piš jako čisté funkce s jednotkovými testy (`curve.ts` je vzor);
+  UI a vstup ověřuje E2E (`tests/e2e/smoke.mjs`, stav aplikace se čte z DOM).
+- Změna formátu `.khproj` = zvýšit verzi v `project.ts`, starší soubory musí jít dál načíst
+  (test na načtení starší verze).
+
+## Co nesahat
+
+- Pořadí volání `rand()` ve `drawFirework` a formát seedu (vzhled uložených ohňostrojů).
+- Princip „úprava nahrazuje objekt, nemění ho“ (viz výše) a souřadný prostor 1920×1080.
+- Zpětná kompatibilita načítání `.khproj` verzí 1–3.
+- `vizualizace_hudby_koncept_v3.md` / `.pdf` — původní koncept uživatele; do `.md` jen poznámka
+  o stavu realizace, `.pdf` neměnit.
+- Složky `node_modules/`, `out/`, `tests/e2e/output/` (generované) a uživatelova data
+  v `%APPDATA%` (záloha projektu).
