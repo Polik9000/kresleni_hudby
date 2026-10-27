@@ -3,6 +3,7 @@ import { createLayer } from '../src/shared/project'
 import type { FireworkEvent, Layer, Stroke } from '../src/shared/types'
 import { applyCurve, fitCurve } from '../src/renderer/src/curve'
 import { Editor, type EditorHost } from '../src/renderer/src/editor'
+import type { TimeWindow } from '../src/renderer/src/timeWindow'
 
 /** Dosah kliknutí v logických px, jako v aplikaci při 100% zobrazení. */
 const R = 10
@@ -43,6 +44,7 @@ const firework = (): FireworkEvent => ({ x: 1500, y: 300, t: 1.5, seed: 12345, d
 
 let layer: Layer
 let time: number
+let win: TimeWindow
 let undoStack: Snapshot[]
 let changes: number
 let editor: Editor
@@ -51,11 +53,14 @@ beforeEach(() => {
   layer = createLayer('Test')
   layer.style.smoothing = 0
   time = 1.5
+  // Výchozí okno jako v aplikaci: zpět doba mizení vrstvy, dopředu 1 s.
+  win = { back: layer.style.fadeSeconds, ahead: 1 }
   undoStack = []
   changes = 0
   const host: EditorHost = {
     layer: () => layer,
     time: () => time,
+    timeWindow: () => win,
     beginChange: () => undoStack.push({ strokes: layer.strokes.slice(), fireworks: layer.fireworks.slice() }),
     changed: () => changes++,
     selectionChanged: () => {}
@@ -392,5 +397,77 @@ describe('režim úprav — posun v čase a mazání', () => {
     editor.setSelectedStart(4)
     expect(layer.strokes).toEqual([first, second])
     expect(editor.copy()).toBe(false)
+  })
+})
+
+describe('režim úprav — časové okno', () => {
+  // Přímka je mezi x = 100 a 700 v čase 1–2 s; okno 1,29–1,71 s z ní nechá x ≈ 280–520.
+  const narrow = (): void => {
+    win = { back: 0.21, ahead: 0.21 }
+  }
+
+  it('klik na část čáry mimo okno nic nevybere, na část v okně ano', () => {
+    add(line())
+    narrow()
+    click(150, 500)
+    expect(editor.hasSelection).toBe(false)
+    click(650, 500)
+    expect(editor.hasSelection).toBe(false)
+    click(400, 500)
+    expect(editor.describe()).toBe('Vybrána čára (2 uzlů).')
+  })
+
+  it('uzel mimo okno nejde chytit ani táhnout', () => {
+    const original = add(line())
+    narrow()
+    click(400, 500)
+    // Uzel 1 leží na začátku čáry (1 s), tedy mimo okno: klik tam výběr zruší a tažení nic nezmění.
+    drag({ x: 100, y: 500 }, 0, 40)
+    expect(editor.hasSelection).toBe(false)
+    expect(layer.strokes[0]).toBe(original)
+    expect(undoStack).toHaveLength(0)
+    // Se širokým oknem jde týž uzel chytit.
+    win = { back: 5, ahead: 1 }
+    click(400, 500)
+    click(100, 500)
+    expect(editor.describe()).toBe('Vybrán uzel 1 z 2.')
+  })
+
+  it('táhlo uzlu mimo okno nejde chytit', () => {
+    const original = add(wave())
+    const node = original.curve!.nodes[2]
+    click(node.x, node.y)
+    click(node.x, node.y)
+    expect(editor.describe()).toMatch(/^Vybrán uzel 3 z/)
+    // Okno posunuté za konec vlnovky (1–3 s): uzel i jeho táhla zmizí.
+    time = 4
+    win = { back: 0.5, ahead: 1 }
+    drag({ x: node.outX, y: node.outY }, 0, 25)
+    expect(layer.strokes[0]).toBe(original)
+    expect(undoStack).toHaveLength(0)
+  })
+
+  it('vybraná čára mimo okno zůstává vybraná — Delete i Ctrl+C fungují', () => {
+    const stroke = add(line())
+    click(400, 500)
+    time = 10
+    expect(editor.hasSelection).toBe(true)
+    expect(editor.describe()).toBe('Vybrána čára (2 uzlů).')
+    expect(editor.copy()).toBe(true)
+    editor.deleteSelected()
+    expect(layer.strokes).toEqual([])
+    undo()
+    expect(layer.strokes).toEqual([stroke])
+  })
+
+  it('ohňostroj jde vybrat, jen když jeho čas leží v okně', () => {
+    addFirework(firework())
+    time = 2
+    win = { back: 0.4, ahead: 1 }
+    click(1500, 300)
+    expect(editor.hasSelection).toBe(false)
+    win = { back: 0.5, ahead: 1 }
+    click(1500, 300)
+    expect(editor.describe()).toBe('Vybrán ohňostroj.')
   })
 })

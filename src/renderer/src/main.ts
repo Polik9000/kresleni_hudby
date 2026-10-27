@@ -25,6 +25,7 @@ import { exportVideo } from './exportVideo'
 import { FIREWORK_LIFETIME } from './render/fireworks'
 import { layersAt, SceneRenderer } from './render/scene'
 import { Timeline } from './timeline'
+import { DEFAULT_WINDOW_AHEAD, type TimeWindow } from './timeWindow'
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T
 
@@ -49,6 +50,11 @@ let recording = false
 let exporting = false
 /** Režim úprav: plátno nekreslí, ale vybírá a upravuje nahrané čáry a ohňostroje aktivní vrstvy. */
 let editMode = false
+/**
+ * Časové okno režimu úprav nastavené tažením okrajů pásma na ose; jen pro sezení, do projektu se
+ * neukládá. `back` null = doba mizení aktivní vrstvy (to, co je právě na plátně).
+ */
+const editWindowSetting: { back: number | null; ahead: number } = { back: null, ahead: DEFAULT_WINDOW_AHEAD }
 let loadingAudio = false
 /** Roste s každou změnou — pozná se podle něj, jestli během ukládání nepřibyla další. */
 let changeCounter = 0
@@ -96,9 +102,15 @@ const stageCtx = stage.getContext('2d')!
 const layer = (): Layer => project.layers.find((l) => l.id === activeLayerId) ?? project.layers[0]
 const wallTime = (): number => performance.now() / 1000
 
+const editWindow = (): TimeWindow => ({
+  back: editWindowSetting.back ?? layer().style.fadeSeconds,
+  ahead: editWindowSetting.ahead
+})
+
 const editor = new Editor({
   layer,
   time: () => layerTime(layer(), audio.time),
+  timeWindow: editWindow,
   beginChange: () => pushUndo(snapshot()),
   changed: () => {
     markDirty()
@@ -114,7 +126,8 @@ const timeline = new Timeline(
     time: () => audio.time,
     peaks: (columns, from, to) => audio.peaks(columns, from, to),
     layers: () => project.layers,
-    activeLayer: layer
+    activeLayer: layer,
+    editWindow: () => (editMode ? editWindow() : null)
   },
   {
     onSeek: (time) => {
@@ -124,6 +137,10 @@ const timeline = new Timeline(
       if (recording) return
       selectLayer(target.id)
       setLayerOffset(Math.round(offset * 100) / 100)
+    },
+    onEditWindow: (edge, seconds) => {
+      editWindowSetting[edge] = Math.round(seconds * 10) / 10
+      updateEditPanel()
     }
   }
 )
@@ -243,6 +260,8 @@ function updateEditPanel(): void {
   $('edit-panel').hidden = !editMode
   if (!editMode) return
   $('edit-info').textContent = editor.describe()
+  const win = editWindow()
+  $('edit-window').textContent = `${win.back.toFixed(1)} s zpět, ${win.ahead.toFixed(1)} s dopředu`
   const start = editor.selectedStart()
   editInputs.time.disabled = start === null
   if (document.activeElement !== editInputs.time) {
@@ -429,6 +448,8 @@ function bindStyle(input: HTMLInputElement, apply: (style: LayerStyle, value: st
   input.addEventListener('input', () => {
     apply(layer().style, input.value)
     updateStyleLabels()
+    // Výchozí časové okno úprav sahá zpět o dobu mizení.
+    updateEditPanel()
     renderLayerList()
     timeline.invalidate()
     markDirty()

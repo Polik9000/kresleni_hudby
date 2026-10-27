@@ -43,7 +43,13 @@ Ikona oka vrstvu skryje úplně — skrytá vrstva není ani v exportu. Časová
 vlastní pruh.
 
 **Úpravy (`E`):** plátno přestane kreslit a místo toho vybírá. Vidět jsou obrysy čar a značky
-ohňostrojů vybrané vrstvy, které jsou kolem aktuálního času na plátně.
+ohňostrojů vybrané vrstvy, ale jen v **časovém okně** kolem přehrávací hlavy — u dlouhé čáry tedy
+jen její část nakreslená v tomto čase. Co leží mimo okno (části čar, uzly, táhla, ohňostroje),
+se nekreslí a nejde chytit. Okno je na časové ose modré pásmo, které jede s přehrávací hlavou;
+tažením jeho levého okraje se mění, jak daleko sahá zpět, pravého jak daleko dopředu. Výchozí okno
+odpovídá tomu, co je na plátně: zpět doba mizení vrstvy, dopředu 1 s. Nastavená šířka platí
+do zavření aplikace (do projektu se neukládá); aktuální hodnoty ukazuje panel Úpravy.
+Vybraná čára zůstává vybraná, i když z okna odjede — `Delete` a `Ctrl+C` s ní pracují dál.
 
 | Akce v režimu úprav | Ovládání |
 | --- | --- |
@@ -55,6 +61,7 @@ ohňostrojů vybrané vrstvy, které jsou kolem aktuálního času na plátně.
 | Kopírovat / vložit na místo přehrávací hlavy | `Ctrl+C` / `Ctrl+V` (celá čára, vybraný úsek, ohňostroj) |
 | Posunout vybrané v čase | pole „Začátek (s)“ v panelu |
 | Smazat vybrané / zrušit výběr | `Delete` / `Esc` |
+| Rozšířit / zúžit časové okno | tažení okraje modrého pásma na časové ose |
 
 Čára se první úpravou tvaru převede na křivku; od té chvíle na ni už nepůsobí posuvník Vyhlazení.
 
@@ -70,7 +77,7 @@ se zálohuje do složky aplikace a po pádu se nabídne k obnovení.
 - `src/main` — okno, souborové dialogy, export přes ffmpeg (`exporter.ts`)
 - `src/renderer/src/render` — vykreslení scény jako čistá funkce času (společné pro náhled i export)
 - `src/renderer/src` — audio hodiny, časová osa, nahrávání a UI; `curve.ts` (prokládání tahu
-  křivkou) a `editor.ts` (režim úprav)
+  křivkou), `editor.ts` (režim úprav) a `timeWindow.ts` (časové okno úprav)
 
 ## Testy
 

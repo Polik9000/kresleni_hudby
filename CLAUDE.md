@@ -40,8 +40,8 @@ Když se něco nedaří:
 ## Kde jsme (stav k 27. 10. 2026)
 
 **Fáze 1 (MVP), 2 (vrstvy, export) a 3 (úpravy křivek) jsou hotové a commitnuté.**
-**Další krok: `TODO.md`** — na řadě je spolehlivost a testy, pak připomínka uživatele
-k režimu úprav (časové okno), dodělání fáze 3 a odložené vyhlazení klávesou `S`.
+**Další krok: `TODO.md`** — spolehlivost a testy, časové okno režimu úprav (úkol 3) hotové;
+na řadě je dodělání fáze 3 a odložené vyhlazení klávesou `S`.
 Fáze 2 a 3 uživatel skoro nezkoušel — čekej další připomínky.
 
 Hotovo:
@@ -65,6 +65,9 @@ Hotovo:
 - režim úprav (`E`): výběr čáry/ohňostroje na plátně, tažení celého prvku, uzlů křivky a táhel
   (Alt = roh), výběr úseku mezi dvěma uzly (Shift+klik), Ctrl+C/Ctrl+V na místo přehrávací hlavy,
   Delete, pole „Začátek (s)“ pro posun vybraného prvku v čase; vše jde vrátit přes Zpět
+- časové okno režimu úprav: vidět a chytit jde jen část čar, uzly a ohňostroje v okně kolem
+  přehrávací hlavy; okno je pásmo na časové ose, jeho okraje jdou táhnout (výchozí: zpět doba
+  mizení vrstvy, dopředu 1 s)
 
 Ve fázi 3 zatím chybí přidání/smazání uzlu, rozdělení čáry a výběr víc prvků (jsou v `TODO.md`).
 Úpravy ve víc vrstvách zároveň, metronom a instalátor `.exe` uživatel teď nechce.
@@ -72,7 +75,7 @@ Ve fázi 3 zatím chybí přidání/smazání uzlu, rozdělení čáry a výběr
 Neověřeno na skutečném hardwaru (jen simulovanou myší v testu): zámek kurzoru s druhým monitorem
 a s perem/tabletem, kreslení `D`/`T` na skutečném touchpadu, překryv načítání u dlouhé skladby.
 Režim úprav zkoušel v aplikaci jen E2E test na jedné vlnovce (úprava uzlu, přesun, kopie, smazání,
-Zpět); ostatní operace (táhla, výběr úseku, ohňostroje, posun v čase) pokrývá `tests/editor.test.ts`.
+Zpět, zúžení a rozšíření časového okna); ostatní operace (táhla, výběr úseku, ohňostroje, posun v čase) pokrývá `tests/editor.test.ts`.
 Export 4K a formáty H.265/ProRes z aplikace nikdo nespustil (argumenty ffmpeg ověřeny jen ručně
 na krátkém klipu); E2E test exportuje 1080p H.264 a 720p WebM.
 
@@ -99,6 +102,9 @@ na krátkém klipu); E2E test exportuje 1080p H.264 a 720p WebM.
   (Schneider), dopočet bodů z křivky, posun uzlu/táhla, výřez mezi uzly. Pokryto jednotkovými testy.
 - `src/renderer/src/editor.ts` — režim úprav: výběr, tažení, schránka, překryv s uzly. S `main.ts`
   mluví přes `EditorHost`; překryv se kreslí přes hotový snímek do canvasu náhledu (v exportu není).
+- `src/renderer/src/timeWindow.ts` — časové okno režimu úprav (čisté funkce): výřez tahu
+  (`strokeWindow`) a test času (`inWindow`) s posunem vrstvy. Stav okna drží `main.ts`
+  (`editWindowSetting`), pásmo kreslí a jeho okraje táhne `Timeline` (`editWindow` / `onEditWindow`).
 - `src/renderer/src/timeline.ts`, `exportVideo.ts` — časová osa (waveform + pruh na vrstvu,
   výšku si nastavuje sama podle počtu vrstev), smyčka exportu.
 
@@ -137,6 +143,10 @@ na krátkém klipu); E2E test exportuje 1080p H.264 a 720p WebM.
 - **Atomický zápis na Windows:** přejmenování dočasného souboru selže, když cíl někdo právě čte
   (E2E test, antivir), proto `renamePatiently` v `main/index.ts` zkouší znovu. Bez toho byl E2E
   test občas nestabilní (příčina ověřena jen nepřímo — po opravě 3 běhy bez chyby).
+- **Časové okno úprav je stav sezení** (`editWindowSetting` v `main.ts`), do projektu se neukládá.
+  `back: null` znamená „doba mizení aktivní vrstvy“ — dokud uživatel levý okraj netáhne, okno
+  sleduje posuvník mizení. Okno se počítá v čase skladby, časy prvků přes `offset` vrstvy. Uzel
+  má čas bodu, na kterém leží (`nodeTimes` v `curve.ts`). Vybraný prvek mimo okno zůstává vybraný.
 - **Výběr v editoru může ukazovat na zaniklý prvek** (po Zpět, přepnutí vrstvy). Každá veřejná
   operace s výběrem v `editor.ts` proto nejdřív volá `validate()`; nová operace musí taky.
 - **Pořadí volání `rand()` v `drawFirework` se nesmí měnit** — určuje vzhled uložených ohňostrojů.

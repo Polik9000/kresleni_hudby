@@ -1,13 +1,15 @@
 import type { FireworkEvent, Layer, Stroke, StrokeCurve } from '../../shared/types'
-import { applyCurve, fitCurve, moveHandle, moveNode, sliceStroke, translateCurve } from './curve'
-import { FIREWORK_LIFETIME } from './render/fireworks'
+import { applyCurve, fitCurve, moveHandle, moveNode, nodeTimes, sliceStroke, translateCurve } from './curve'
 import { smoothedPositions, strokePositions } from './render/stroke'
+import { inWindow, strokeWindow, type TimeWindow } from './timeWindow'
 
 export interface EditorHost {
   /** Aktivní vrstva — upravuje se jen ta. */
   layer(): Layer
   /** Aktuální čas ve vlastním čase aktivní vrstvy. */
   time(): number
+  /** Časové okno kolem přehrávací hlavy — jen to, co v něm leží, je vidět a jde chytit. */
+  timeWindow(): TimeWindow
   /** Zavolá se těsně před první změnou dat (krok pro Zpět). */
   beginChange(): void
   /** Zavolá se po dokončené změně dat. */
@@ -34,8 +36,6 @@ type Drag = { start: Pos; moved: boolean } & (
 
 type Clip = { kind: 'stroke'; stroke: Stroke } | { kind: 'firework'; firework: FireworkEvent }
 
-/** Jak dlouho před svým začátkem je tah nebo ohňostroj v režimu úprav už vidět (s). */
-const LEAD_SECONDS = 1
 /** Nahrané body se před proložením křivkou vyhladí aspoň takto, jinak by z roztřesení vznikly desítky uzlů. */
 const MIN_FIT_SMOOTHING = 0.25
 const ACCENT = '#4db8ff'
@@ -179,7 +179,8 @@ export class Editor {
 
     if (sel?.kind === 'stroke') {
       const curve = this.curveOf(sel.stroke)
-      if (sel.node !== null && !mods.shiftKey) {
+      const shown = this.nodesInWindow(sel.stroke, curve)
+      if (sel.node !== null && shown[sel.node] && !mods.shiftKey) {
         for (const which of ['in', 'out'] as const) {
           const handle = this.handlePosition(curve, sel.node, which)
           if (handle && distance(pos, handle) <= radius) {
@@ -192,7 +193,7 @@ export class Editor {
       let nearestDistance = radius
       curve.nodes.forEach((node, i) => {
         const d = distance(pos, node)
-        if (d <= nearestDistance) {
+        if (shown[i] && d <= nearestDistance) {
           nearest = i
           nearestDistance = d
         }
@@ -228,10 +229,10 @@ export class Editor {
 
     let stroke: Stroke | null = null
     best = Infinity
-    for (const candidate of this.visibleStrokes()) {
-      const d = this.distanceToStroke(pos, candidate, layer)
+    for (const part of this.visibleStrokes()) {
+      const d = this.distanceToStroke(pos, part, layer)
       if (d <= Math.max(radius, layer.style.width / 2) && d < best) {
-        stroke = candidate
+        stroke = part.stroke
         best = d
       }
     }
@@ -281,7 +282,7 @@ export class Editor {
   }
 
   /**
-   * Nakreslí přes náhled obrysy čar, uzly, táhla a značky ohňostrojů.
+   * Nakreslí přes náhled obrysy čar, uzly, táhla a značky ohňostrojů — vše jen v časovém okně.
    * `scale`: pixely canvasu na logický px; `unit`: logické px na 1 px obrazovky.
    */
   draw(ctx: CanvasRenderingContext2D, scale: number, unit: number): void {
@@ -295,14 +296,16 @@ export class Editor {
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
 
-    for (const stroke of this.visibleStrokes()) {
+    for (const { stroke, from, to } of this.visibleStrokes()) {
       const selected = sel?.kind === 'stroke' && sel.stroke === stroke
       const { xs, ys } = strokePositions(stroke, layer.style)
       ctx.strokeStyle = selected ? '#fff' : 'rgba(255,255,255,0.4)'
       ctx.lineWidth = (selected ? 1.5 : 1) * unit
       ctx.beginPath()
-      ctx.moveTo(xs[0], ys[0])
-      for (let i = 1; i < stroke.points.length; i++) ctx.lineTo(xs[i], ys[i])
+      ctx.moveTo(xs[from], ys[from])
+      // Jediný bod v okně se nakreslí jako tečka (kulatý konec čáry nulové délky).
+      if (to === from) ctx.lineTo(xs[from], ys[from])
+      for (let i = from + 1; i <= to; i++) ctx.lineTo(xs[i], ys[i])
       ctx.stroke()
     }
 
@@ -322,8 +325,9 @@ export class Editor {
 
     if (sel?.kind === 'stroke') {
       const curve = this.curveOf(sel.stroke)
+      const shown = this.nodesInWindow(sel.stroke, curve)
       const { node, rangeEnd } = sel
-      if (node !== null) {
+      if (node !== null && shown[node]) {
         ctx.strokeStyle = ACCENT
         ctx.fillStyle = '#fff'
         ctx.lineWidth = unit
@@ -345,6 +349,7 @@ export class Editor {
       const high = node === null ? -1 : Math.max(node, rangeEnd ?? node)
       ctx.lineWidth = unit
       curve.nodes.forEach((n, i) => {
+        if (!shown[i]) return
         ctx.fillStyle = i >= low && i <= high ? ACCENT : '#0b0c0f'
         ctx.strokeStyle = '#fff'
         ctx.fillRect(n.x - half, n.y - half, half * 2, half * 2)
@@ -388,35 +393,40 @@ export class Editor {
     return index < curve.nodes.length - 1 ? { x: node.outX, y: node.outY } : null
   }
 
-  private visibleStrokes(): Stroke[] {
-    const layer = this.host.layer()
-    const time = this.host.time()
-    const sel = this.selection
-    return layer.strokes.filter((stroke) => {
-      if (sel?.kind === 'stroke' && sel.stroke === stroke) return true
-      const { points } = stroke
-      return time >= points[0].t - LEAD_SECONDS && time <= points[points.length - 1].t + layer.style.fadeSeconds
-    })
+  /** Čas skladby a okno kolem něj; časy prvků se přepočítají přes posun vrstvy. */
+  private windowAt(): { offset: number; songTime: number; win: TimeWindow } {
+    const { offset } = this.host.layer()
+    return { offset, songTime: this.host.time() + offset, win: this.host.timeWindow() }
+  }
+
+  /** Části tahů v časovém okně (indexy bodů `from`–`to`). Vybraný tah mimo okno zůstává vybraný, jen se nekreslí. */
+  private visibleStrokes(): { stroke: Stroke; from: number; to: number }[] {
+    const { offset, songTime, win } = this.windowAt()
+    const parts: { stroke: Stroke; from: number; to: number }[] = []
+    for (const stroke of this.host.layer().strokes) {
+      const range = strokeWindow(stroke.points, offset, songTime, win)
+      if (range) parts.push({ stroke, ...range })
+    }
+    return parts
   }
 
   private visibleFireworks(): FireworkEvent[] {
-    const time = this.host.time()
-    const sel = this.selection
-    return this.host
-      .layer()
-      .fireworks.filter(
-        (fw) =>
-          (sel?.kind === 'firework' && sel.firework === fw) ||
-          (time >= fw.t - LEAD_SECONDS && time <= fw.t + FIREWORK_LIFETIME)
-      )
+    const { offset, songTime, win } = this.windowAt()
+    return this.host.layer().fireworks.filter((fw) => inWindow(fw.t, offset, songTime, win))
   }
 
-  private distanceToStroke(pos: Pos, stroke: Stroke, layer: Layer): number {
-    const { xs, ys } = strokePositions(stroke, layer.style)
-    const n = stroke.points.length
-    if (n === 1) return Math.hypot(pos.x - xs[0], pos.y - ys[0])
-    let best = Infinity
-    for (let i = 1; i < n; i++) best = Math.min(best, distanceToSegment(pos, xs[i - 1], ys[i - 1], xs[i], ys[i]))
+  /** Které uzly křivky leží v časovém okně — jen ty se kreslí a jdou chytit. */
+  private nodesInWindow(stroke: Stroke, curve: StrokeCurve): boolean[] {
+    const { offset, songTime, win } = this.windowAt()
+    return nodeTimes(stroke, curve).map((t) => inWindow(t, offset, songTime, win))
+  }
+
+  private distanceToStroke(pos: Pos, part: { stroke: Stroke; from: number; to: number }, layer: Layer): number {
+    const { xs, ys } = strokePositions(part.stroke, layer.style)
+    let best = Math.hypot(pos.x - xs[part.from], pos.y - ys[part.from])
+    for (let i = part.from + 1; i <= part.to; i++) {
+      best = Math.min(best, distanceToSegment(pos, xs[i - 1], ys[i - 1], xs[i], ys[i]))
+    }
     return best
   }
 

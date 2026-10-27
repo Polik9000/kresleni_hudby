@@ -58,7 +58,7 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
   vrstvy. Oprava v `editor.ts`: tyto operace nejdřív volají `validate()`. V aplikaci to šlo
   vyvolat jen rychlým `Ctrl+Z` + `Delete` v jednom snímku, ručně neověřeno.
 
-### 3. [ ] Časové okno v režimu úprav — L
+### 3. [x] Časové okno v režimu úprav — L
 - **Cíl (připomínka uživatele):** v režimu úprav je teď vidět obrys celé čáry, dokud je
   kterákoli její část živá — u dlouhého tahu tedy vše nakreslené od začátku a nedá se v tom
   vyznat. Nově:
@@ -77,6 +77,20 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
   (tah celý v okně, částečně, mimo, posun vrstvy `offset`); E2E nakreslí dlouhý tah,
   v režimu úprav ověří, že klik na jeho část mimo okno nic nevybere a tažení okraje pásma
   okno rozšíří (stav vystavit pro test stejně jako jiné stavy v `smoke.mjs`).
+- **Poznámka (27. 10. 2026):** Nový modul `timeWindow.ts` (čisté funkce `strokeWindow` — indexy
+  prvního a posledního bodu tahu v okně — a `inWindow`, obě s `offset` vrstvy) a `nodeTimes`
+  v `curve.ts` (uzel má čas bodu, na kterém leží). Editor kreslí a chytá jen části čar, uzly,
+  táhla a ohňostroje v okně; `LEAD_SECONDS` nahradila konstanta `DEFAULT_WINDOW_AHEAD`.
+  Ohňostroj je v okně podle svého času vzniku (dřív byl vidět ještě 2,4 s po výbuchu, teď podle
+  „zpět“, výchozí 5 s). Vybraný prvek mimo okno už se nekreslí (dřív se vybraný kreslil vždy).
+  Na ose je modré pásmo, okraje jdou táhnout (kurzor ↔, s Shiftem dál platí posun vrstvy), hodnota
+  se zaokrouhlí na 0,1 s; panel Úpravy ukazuje „Časové okno: X s zpět, Y s dopředu“ (`#edit-window`,
+  z toho čte E2E). Dokud se levý okraj netáhne, „zpět“ sleduje dobu mizení aktivní vrstvy.
+  Testy: `tests/timeWindow.test.ts` (celý / částečně / mimo / okraje / offset, časy uzlů), 5 nových
+  testů okna v `tests/editor.test.ts`; E2E zúží okno tažením okraje, ověří, že klik na ranou část
+  vlnovky nic nevybere, a rozšířením ji zpřístupní. E2E prošel 1× (uživatel nepracoval).
+  **Ručně ověřit:** jestli je pásmo dobře vidět a okraje jdou pohodlně chytit (dosah 6 px);
+  okraj mimo výřez osy (např. 5 s zpět na začátku skladby) chytit nejde — pak přetočit nebo oddálit.
 
 ### 4. [ ] README z větve `ccr` a úklid větví — S — [PARALELNĚ]
 - **Cíl:** z větve `origin/ccr-4a7bd951-02x0mu` (dokumentace ze 4. 10., stav po fázi 1)

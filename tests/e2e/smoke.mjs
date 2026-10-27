@@ -262,6 +262,61 @@ try {
     () => savedLayer().curves === undefined && JSON.stringify(savedLayer().strokes) === JSON.stringify(originalStrokes),
     'kroky Zpět nevrátily původní čáry'
   )
+
+  // --- Časové okno režimu úprav: vidět a chytit jde jen čas kolem přehrávací hlavy ---
+  // Vlnovka protíná střed výšky v f = 0,25 a 0,75; časy těch míst se vezmou z nahrávky.
+  const timeNear = (fx, fy) => {
+    const flat = savedLayer().strokes[0]
+    let best = Infinity
+    let time = 0
+    for (let i = 0; i < flat.length; i += 3) {
+      const d = Math.hypot(flat[i] - fx * 1920, flat[i + 1] - fy * 1080)
+      if (d < best) [best, time] = [d, flat[i + 2]]
+    }
+    return time
+  }
+  const earlyTime = timeNear(0.15, 0.5)
+  const lateTime = timeNear(0.55, 0.5)
+  assert.ok(lateTime - earlyTime > 1 && lateTime < 5, `vlnovka má nečekané časy ${earlyTime} a ${lateTime}`)
+  const axisX = (t) => axis.x + (axis.width * t) / AUDIO_SECONDS
+  const axisY = axis.y + 20
+  const windowText = () => page.textContent('#edit-window')
+  const dragAxis = async (fromTime, toTime) => {
+    await page.mouse.move(axisX(fromTime), axisY)
+    await page.mouse.down()
+    await page.mouse.move(axisX(toTime), axisY, { steps: 5 })
+    await page.mouse.up()
+  }
+  await page.keyboard.press('Escape')
+  // Výchozí okno: zpět doba mizení vrstvy (5 s), dopředu 1 s.
+  assert.equal(await windowText(), '5.0 s zpět, 1.0 s dopředu')
+  // Hlava v 7 s → okno 2–8 s; levý okraj pásma se táhne na 6 s, okno se zúží na 1 s zpět.
+  // Popisek času se překresluje až v dalším snímku.
+  const nextFrame = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+  await page.mouse.click(axisX(7), axisY)
+  await nextFrame()
+  const timeAtSeven = await page.textContent('#time')
+  await dragAxis(2, 6)
+  await page.waitForFunction(() => document.getElementById('edit-window').textContent.startsWith('1.0 s zpět'))
+  await nextFrame()
+  assert.equal(await page.textContent('#time'), timeAtSeven, 'tažení okraje okna nepřetáčí')
+  // Pásmo jede s hlavou: okno pak pokrývá pozdní část vlnovky, ranou ne.
+  const head = lateTime + 0.5
+  await page.mouse.click(axisX(head), axisY)
+  await page.mouse.click(...at(0.15, 0.5))
+  assert.match(await editInfo(), /Nic není vybráno/, 'část čáry mimo časové okno nejde vybrat')
+  await page.screenshot({ path: join(out, 'edit-window.png') })
+  await page.mouse.click(...at(0.55, 0.5))
+  assert.match(await editInfo(), /Vybrána čára \(\d+ uzlů\)/)
+  await page.keyboard.press('Escape')
+  // Tažením levého okraje před ranou část se okno rozšíří a ta jde vybrat.
+  const wideStart = Math.max(earlyTime - 0.5, 0.05)
+  await dragAxis(head - 1, wideStart)
+  const back = Number((await windowText()).split(' ')[0])
+  assert.ok(Math.abs(back - (head - wideStart)) < 0.15, `okno sahá ${back} s zpět místo ${head - wideStart}`)
+  await page.mouse.click(...at(0.15, 0.5))
+  assert.match(await editInfo(), /Vybrána čára \(\d+ uzlů\)/, 'po rozšíření okna jde ranou část vybrat')
+  await page.keyboard.press('Escape')
   await page.keyboard.press('e')
   assert.equal(await page.isVisible('#edit-panel'), false)
 

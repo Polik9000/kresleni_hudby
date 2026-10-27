@@ -37,6 +37,9 @@
         <section id="edit-panel" hidden>
           <h2>Úpravy</h2>
           <p id="edit-info" class="muted small"></p>
+          <p class="small" title="Vidět a chytit jde jen to, co leží v tomto čase kolem přehrávací hlavy. Mění se tažením okrajů modrého pásma na časové ose.">
+            Časové okno: <span id="edit-window"></span>
+          </p>
           <label class="field row" title="Čas skladby, kdy vybraná čára nebo ohňostroj začíná">
             <span>Začátek (s)</span>
             <input id="edit-time" type="number" step="0.01" />
@@ -53,6 +56,7 @@
             <li><kbd>Shift</kbd> + klik na druhý uzel vybere úsek čáry ke zkopírování</li>
             <li><kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd> vloží kopii na místo přehrávací hlavy</li>
             <li><kbd>Delete</kbd> smaže, <kbd>Esc</kbd> zruší výběr</li>
+            <li>vidět je jen čas v <kbd>modrém pásmu</kbd> na ose; tažením jeho okrajů se okno mění</li>
           </ul>
         </section>
 

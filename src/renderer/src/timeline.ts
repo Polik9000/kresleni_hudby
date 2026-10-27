@@ -1,4 +1,5 @@
 import type { Layer } from '../../shared/types'
+import type { TimeWindow } from './timeWindow'
 
 export interface TimelineSource {
   /** Délka celé osy v sekundách. */
@@ -8,12 +9,16 @@ export interface TimelineSource {
   peaks(columns: number, from: number, to: number): Float32Array | null
   layers(): Layer[]
   activeLayer(): Layer
+  /** Časové okno režimu úprav kolem přehrávací hlavy; null mimo režim úprav. */
+  editWindow(): TimeWindow | null
 }
 
 export interface TimelineHandlers {
   onSeek(time: number): void
   /** Tažení pruhu vrstvy se Shiftem: nový posun vrstvy v sekundách. */
   onLayerOffset(layer: Layer, offset: number): void
+  /** Tažení okraje pásma časového okna: nová délka „zpět“ nebo „dopředu“ v sekundách. */
+  onEditWindow(edge: 'back' | 'ahead', seconds: number): void
 }
 
 /** Výška waveformu a pruhu jedné vrstvy v CSS px; pruhy dohromady nepřerostou `MAX_LANES_HEIGHT`. */
@@ -22,6 +27,8 @@ const LANE_HEIGHT = 14
 const MAX_LANES_HEIGHT = 112
 /** Nejkratší úsek skladby (s), na který jde osu přiblížit. */
 const MIN_SPAN = 2
+/** Jak blízko okraje pásma časového okna (CSS px) ho jde chytit. */
+const EDGE_GRAB = 6
 
 /**
  * Časová osa: waveform, pod ním pruh se značkami obsahu pro každou vrstvu, přehrávací hlava.
@@ -39,6 +46,7 @@ export class Timeline {
   private viewStart = 0
   private lastTime = 0
   private drag: { layer: Layer; startX: number; startOffset: number } | null = null
+  private edgeDrag: 'back' | 'ahead' | null = null
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -50,30 +58,41 @@ export class Timeline {
     this.updateHeight()
     this.resize()
 
-    const seekFromEvent = (e: PointerEvent): void => {
+    const timeAt = (e: PointerEvent): number => {
       const rect = canvas.getBoundingClientRect()
       const f = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1)
       const { start, span } = this.view()
-      handlers.onSeek(start + f * span)
+      return start + f * span
     }
     canvas.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return
       canvas.setPointerCapture(e.pointerId)
       const layer = e.shiftKey ? this.layerAt(e) : null
-      if (layer) this.drag = { layer, startX: e.clientX, startOffset: layer.offset }
-      else seekFromEvent(e)
-    })
-    canvas.addEventListener('pointermove', (e) => {
-      if (!canvas.hasPointerCapture(e.pointerId)) return
-      if (!this.drag) {
-        seekFromEvent(e)
+      if (layer) {
+        this.drag = { layer, startX: e.clientX, startOffset: layer.offset }
         return
       }
-      const seconds = ((e.clientX - this.drag.startX) / canvas.getBoundingClientRect().width) * this.view().span
-      handlers.onLayerOffset(this.drag.layer, this.drag.startOffset + seconds)
+      this.edgeDrag = e.shiftKey ? null : this.edgeAt(e)
+      if (!this.edgeDrag) handlers.onSeek(timeAt(e))
+    })
+    canvas.addEventListener('pointermove', (e) => {
+      if (!canvas.hasPointerCapture(e.pointerId)) {
+        canvas.style.cursor = this.edgeAt(e) ? 'ew-resize' : ''
+        return
+      }
+      if (this.edgeDrag) {
+        const offset = timeAt(e) - this.source.time()
+        handlers.onEditWindow(this.edgeDrag, Math.max(this.edgeDrag === 'back' ? -offset : offset, 0))
+      } else if (this.drag) {
+        const seconds = ((e.clientX - this.drag.startX) / canvas.getBoundingClientRect().width) * this.view().span
+        handlers.onLayerOffset(this.drag.layer, this.drag.startOffset + seconds)
+      } else {
+        handlers.onSeek(timeAt(e))
+      }
     })
     const endDrag = (): void => {
       this.drag = null
+      this.edgeDrag = null
     }
     canvas.addEventListener('pointerup', endDrag)
     canvas.addEventListener('pointercancel', endDrag)
@@ -147,6 +166,18 @@ export class Timeline {
     }
     ctx.drawImage(this.background, 0, 0)
 
+    // Pásmo časového okna režimu úprav jede s přehrávací hlavou.
+    const win = this.source.editWindow()
+    if (win) {
+      const left = ((time - win.back - start) / span) * canvas.width
+      const right = ((time + win.ahead - start) / span) * canvas.width
+      ctx.fillStyle = 'rgba(77, 184, 255, 0.16)'
+      ctx.fillRect(left, 0, right - left, canvas.height)
+      ctx.fillStyle = '#4db8ff'
+      ctx.fillRect(Math.round(left) - 1, 0, 2, canvas.height)
+      ctx.fillRect(Math.round(right) - 1, 0, 2, canvas.height)
+    }
+
     const x = Math.round(((time - start) / span) * canvas.width)
     ctx.fillStyle = '#fff'
     ctx.fillRect(x - 1, 0, 2, canvas.height)
@@ -163,6 +194,20 @@ export class Timeline {
     this.lanes = lanes
     this.canvas.style.height = `${WAVE_HEIGHT + this.lanesHeight()}px`
     this.backgroundDirty = true
+  }
+
+  /** Okraj pásma časového okna pod ukazatelem (null mimo režim úprav nebo mimo okraj). */
+  private edgeAt(e: PointerEvent): 'back' | 'ahead' | null {
+    const win = this.source.editWindow()
+    if (!win) return null
+    const rect = this.canvas.getBoundingClientRect()
+    const { start, span } = this.view()
+    const time = this.source.time()
+    const toX = (t: number): number => rect.left + ((t - start) / span) * rect.width
+    const back = Math.abs(e.clientX - toX(time - win.back))
+    const ahead = Math.abs(e.clientX - toX(time + win.ahead))
+    if (Math.min(back, ahead) > EDGE_GRAB) return null
+    return back < ahead ? 'back' : 'ahead'
   }
 
   /** Vrstva, jejíž pruh leží pod ukazatelem (null nad waveformem). */

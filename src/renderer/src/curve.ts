@@ -190,6 +190,21 @@ export function curvePoint(curve: StrokeCurve, param: number): P {
   return bezierAt([a, { x: a.outX, y: a.outY }, { x: b.inX, y: b.inY }, b], param - segment)
 }
 
+/**
+ * Čas každého uzlu: čas prvního bodu, který na křivce leží v uzlu nebo za ním. Uzel `i` je
+ * na parametru `i` a parametry bodů neklesají.
+ */
+export function nodeTimes(stroke: Stroke, curve: StrokeCurve): number[] {
+  const { points } = stroke
+  const times: number[] = []
+  let j = 0
+  for (let i = 0; i < curve.nodes.length; i++) {
+    while (j < points.length - 1 && curve.params[j] < i - 1e-9) j++
+    times.push(points[j].t)
+  }
+  return times
+}
+
 /** Nový tah s body dopočítanými z křivky; časy bodů zůstávají. */
 export function applyCurve(stroke: Stroke, curve: StrokeCurve): Stroke {
   return {
