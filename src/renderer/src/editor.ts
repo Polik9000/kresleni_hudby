@@ -92,6 +92,7 @@ export class Editor {
 
   /** Začátek vybraného prvku ve vlastním čase vrstvy, null bez výběru. */
   selectedStart(): number | null {
+    this.validate()
     const sel = this.selection
     if (!sel) return null
     return sel.kind === 'firework' ? sel.firework.t : sel.stroke.points[0].t
@@ -113,6 +114,7 @@ export class Editor {
   }
 
   deleteSelected(): void {
+    this.validate()
     const sel = this.selection
     if (!sel) return
     const layer = this.host.layer()
@@ -127,6 +129,7 @@ export class Editor {
 
   /** Zkopíruje vybraný prvek; u čáry s vybraným úsekem mezi dvěma uzly jen ten úsek. */
   copy(): boolean {
+    this.validate()
     const sel = this.selection
     if (!sel) return false
     if (sel.kind === 'firework') {
@@ -351,7 +354,10 @@ export class Editor {
     ctx.restore()
   }
 
-  /** Výběr mohl zaniknout jinde (Zpět, přepnutí vrstvy, nový projekt). */
+  /**
+   * Výběr mohl zaniknout jinde (Zpět, přepnutí vrstvy, nový projekt). Volá se před každou
+   * operací s výběrem — jinak by např. Delete hned po Zpět smazal jiný prvek (`indexOf` = −1).
+   */
   private validate(): void {
     const sel = this.selection
     if (!sel) return

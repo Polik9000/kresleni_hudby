@@ -38,7 +38,7 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
   vstupu, ověřeno přes `GetLastInputInfo`) prošlo 5× za sebou, ~65 s na běh. Pod extrémní
   zátěží (> 6× zpomalení) test pořád může nestihnout — pak to řekne `assertRecording`.
 
-### 2. [ ] Jednotkové testy režimu úprav — M — [PARALELNĚ]
+### 2. [x] Jednotkové testy režimu úprav — M — [PARALELNĚ]
 - **Cíl:** pokrýt části režimu úprav, které zkoušel jen E2E nebo nikdo: táhla (zrcadlení,
   `Alt` = roh), výběr úseku mezi uzly a jeho kopie, kopie/vložení celé čáry a ohňostroje
   na místo přehrávací hlavy, přesun ohňostroje, posun prvku v čase („Začátek (s)“), Delete,
@@ -47,6 +47,16 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
   minimálně (např. export pomocné funkce), aby úkol nekolidoval s úkolem 3.
 - **Hotovo, když:** nové testy procházejí a pokrývají všechny výše uvedené operace
   včetně návratu přes Zpět (snapshot hostitele).
+- **Poznámka (27. 10. 2026):** Nový `tests/editor.test.ts` (19 testů) s falešným `EditorHost`,
+  jehož Zpět funguje jako `snapshot`/`restore` v `main.ts`. Pokrývá výběr bez změny dat, přesun
+  čáry (bez vzniku křivky) i křivky, přesun ohňostroje, tažení uzlu (i převod přímky na křivku),
+  táhlo se zrcadlením a s `Alt`, výběr úseku Shift+klikem a jeho kopii, kopii/vložení čáry
+  a ohňostroje na místo přehrávací hlavy, „Začátek (s)“, Delete a návrat každé operace přes Zpět.
+  Původní prvky jsou v testech zmrazené (`Object.freeze`), takže jakákoli změna objektu na místě
+  by test shodila. **Nalezená chyba:** Delete (a „Začátek (s)“, Ctrl+C) hned po Zpět, dřív než se
+  plátno překreslí, pracoval se zaniklým výběrem — `indexOf` = −1 a Delete smazal poslední tah
+  vrstvy. Oprava v `editor.ts`: tyto operace nejdřív volají `validate()`. V aplikaci to šlo
+  vyvolat jen rychlým `Ctrl+Z` + `Delete` v jednom snímku, ručně neověřeno.
 
 ### 3. [ ] Časové okno v režimu úprav — L
 - **Cíl (připomínka uživatele):** v režimu úprav je teď vidět obrys celé čáry, dokud je

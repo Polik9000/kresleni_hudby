@@ -71,8 +71,8 @@ Ve fázi 3 zatím chybí přidání/smazání uzlu, rozdělení čáry a výběr
 
 Neověřeno na skutečném hardwaru (jen simulovanou myší v testu): zámek kurzoru s druhým monitorem
 a s perem/tabletem, kreslení `D`/`T` na skutečném touchpadu, překryv načítání u dlouhé skladby.
-Režim úprav zkoušel jen E2E test na jedné vlnovce (úprava uzlu, přesun, kopie, smazání, Zpět);
-táhla, výběr úseku a posun ohňostroje jsou pokryté jen jednotkovými testy nebo vůbec.
+Režim úprav zkoušel v aplikaci jen E2E test na jedné vlnovce (úprava uzlu, přesun, kopie, smazání,
+Zpět); ostatní operace (táhla, výběr úseku, ohňostroje, posun v čase) pokrývá `tests/editor.test.ts`.
 Export 4K a formáty H.265/ProRes z aplikace nikdo nespustil (argumenty ffmpeg ověřeny jen ručně
 na krátkém klipu); E2E test exportuje 1080p H.264 a 720p WebM.
 
@@ -137,6 +137,8 @@ na krátkém klipu); E2E test exportuje 1080p H.264 a 720p WebM.
 - **Atomický zápis na Windows:** přejmenování dočasného souboru selže, když cíl někdo právě čte
   (E2E test, antivir), proto `renamePatiently` v `main/index.ts` zkouší znovu. Bez toho byl E2E
   test občas nestabilní (příčina ověřena jen nepřímo — po opravě 3 běhy bez chyby).
+- **Výběr v editoru může ukazovat na zaniklý prvek** (po Zpět, přepnutí vrstvy). Každá veřejná
+  operace s výběrem v `editor.ts` proto nejdřív volá `validate()`; nová operace musí taky.
 - **Pořadí volání `rand()` v `drawFirework` se nesmí měnit** — určuje vzhled uložených ohňostrojů.
 - Spotify napojit nejde (export potřebuje soubor, stream je chráněný); uživatel potřebuje audio soubor.
 
@@ -172,7 +174,8 @@ Návratový kód kontroluj přímo (ne přes `| tail`, roura ho schová).
 - Vykreslení (`render/`) zůstává čistá funkce (vrstvy, čas) — žádný stav sezení, žádné `Date.now()`
   ani `Math.random()`; náhodnost jen z PRNG se seedem.
 - Matematiku a datové operace piš jako čisté funkce s jednotkovými testy (`curve.ts` je vzor);
-  UI a vstup ověřuje E2E (`tests/e2e/smoke.mjs`, stav aplikace se čte z DOM).
+  UI a vstup ověřuje E2E (`tests/e2e/smoke.mjs`, stav aplikace se čte z DOM). Režim úprav
+  se testuje přes falešný `EditorHost` v `tests/editor.test.ts` (Zpět jako v `main.ts`).
 - Změna formátu `.khproj` = zvýšit verzi v `project.ts`, starší soubory musí jít dál načíst
   (test na načtení starší verze).
 
