@@ -166,6 +166,83 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
   CLAUDE.md (Architektura) popisuje nové moduly. Dělat až poslední, nikdy souběžně s jiným
   úkolem, který mění `main.ts`.
 
+### Nové efekty (nápady uživatele z 27. 10.)
+
+Úkoly 15–18 mění datový model, vykreslení i `main.ts`, takže se dělají postupně, ne souběžně
+s úkoly 10, 11 a 14. Každá změna formátu `.khproj` = další verze (starší soubory se musí načíst).
+Všechny efekty musí zůstat čistou funkcí (data, čas): náhled = export, žádné `Math.random()`.
+Nové klávesy ověř proti obsluze v `main.ts` (dnes obsazené: D, T, F, R, E, mezerník, Home,
+šipky, +, −, F11; plánované: S z úkolu 10, X z úkolu 8).
+
+### 15. [ ] Prstenec, který smaže obrazovku — L
+- **Cíl:** na místech, kde v hudbě přijde „bum“ a pak ticho, vyčistit plátno. Klávesa `W`
+  vypustí prstenec z místa kurzoru, `Shift+W` ze středu plátna. Prstenec (barva ohňostroje
+  vrstvy, se září) se rozepne přes celou obrazovku (k nejvzdálenějšímu rohu asi za 0,8 s)
+  a **vše nakreslené před ním ve všech vrstvách** (čáry i ohňostroje) v místě, kudy prošel,
+  zhasne. Co se nakreslí po jeho vypuštění, zůstává. Nahrává se jako ostatní prvky
+  (s odpočtem, Zpět/Znovu po průchodu), nanečisto jen efekt.
+- **Návrh:** nová událost ve vrstvě (`waves: { x, y, t }[]`). Mazání podle času skladby
+  (pozor na `offset` vrstev): bod tahu / částice ohňostroje s časem vzniku před prstencem
+  a ve vzdálenosti < poloměr prstence v daném čase se nekreslí. Prstenec ze skryté vrstvy
+  nemaže ani nekreslí nic. `SceneRenderer.render` musí dostat prstence všech vrstev předem
+  (dnes kreslí každou vrstvu zvlášť).
+- **Soubory:** `src/shared/types.ts`, `project.ts`, `render/scene.ts`, `render/stroke.ts`,
+  `render/fireworks.ts`, nový `render/wave.ts`, `main.ts`, `editor.ts` (výběr, přesun, smazání
+  prstence jako ohňostroje), `timeline.ts` (značka na pruhu vrstvy), `tests/`.
+- **Hotovo, když:** jednotkové testy: bod před prstencem uvnitř poloměru se nekreslí, vně
+  ano, bod nakreslený po prstenci ano, platí napříč vrstvami s různým `offset`, skrytá vrstva
+  nemaže; uložení/načtení prstence; E2E: tah, pak `W`, pak tah — v exportovaném snímku po
+  průchodu prstence je vidět jen druhý tah.
+
+### 16. [ ] Jiskry ze špičky čáry („světelný meč“) — M
+- **Cíl:** z místa, kde se čára právě kreslí, odlétají jiskry jako při řezání kovu:
+  vyletí do stran, padají gravitací a do ~0,6 s zhasnou. Čím rychlejší pohyb, tím víc jisker.
+  Ve vzhledu vrstvy přepínač „Jiskry“ a posuvník množství (výchozí vypnuto, aby se staré
+  projekty nezměnily). Barva podle barvy čáry s příměsí bílé. Nastavení se jako ostatní
+  uplatní při vykreslení, takže jde zapnout i u už nahrané vrstvy.
+- **Návrh:** jiskry jsou čistá funkce (tah, čas): vznikají z bodů tahu s časem v posledních
+  ~0,6 s, PRNG se seedem odvozeným z bodu (index + čas), počet podle rychlosti mezi body.
+  Funguje i pro tahy upravené jako křivka a pro tahy posunuté v čase.
+- **Soubory:** `src/shared/types.ts` (`LayerStyle`), `project.ts` (`DEFAULT_STYLE`), nový
+  `render/sparks.ts`, `render/scene.ts`, `index.html`, `main.ts` (panel), `tests/`.
+- **Hotovo, když:** jednotkové testy: stejný tah a čas = stejné jiskry; pomalý pohyb dá
+  méně jisker než rychlý; po 0,6 s od posledního bodu žádné jiskry; vypnuto = žádné.
+  E2E: zapnutí jisker změní pixely snímku u špičky tahu.
+
+### 17. [ ] Opakovaný ohňostroj ťukáním do rytmu — M
+- **Cíl:** ohňostroj, který v jednom místě bouchá v pravidelném intervalu. Klávesa `G`:
+  1. stisk = první výbuch v místě kurzoru, 2. stisk = druhý výbuch na stejném místě a jeho
+  odstup od prvního je interval, dál bouchá sám, 3. stisk opakování ukončí. Když druhý stisk
+  nepřijde do 10 s nebo skončí nahrávání, zůstane jediný výbuch. Konec nahrávání ukončí
+  i běžící opakování. Každý výbuch má jiný seed (jinak by byly všechny stejné).
+- **Návrh:** rozšířit `FireworkEvent` o nepovinné `every` (interval s) a `until` (čas konce),
+  ať funguje výběr, přesun, kopie a posun v čase v režimu úprav bez další práce. V režimu
+  úprav u vybraného opakovaného ohňostroje pole „Interval (s)“ a „Konec (s)“. Časová osa
+  ukazuje opakování jako úsečku s ryskami.
+- **Soubory:** `src/shared/types.ts`, `project.ts`, `render/fireworks.ts`, `render/scene.ts`,
+  `main.ts`, `editor.ts`, `timeline.ts`, `index.html`, `tests/`. Konec obsahu
+  (`projectContentEnd`) musí počítat s `until`.
+- **Hotovo, když:** jednotkové testy: výbuchy přesně v časech `t + k·every` do `until`,
+  každý s jiným seedem; uložení/načtení; starý soubor bez `every` beze změny. E2E: tři stisky
+  `G` během nahrávání vytvoří jeden opakovaný ohňostroj se správným intervalem (tolerance 50 ms).
+
+### 18. [ ] „Dýchající“ ohňostroj — M
+- **Cíl:** ohňostroj, který vybuchne do pravidelného kolečka (jiskry nepadají, drží tvar),
+  kolečko vydrží po dobu z nastavení vrstvy „Držení kolečka (s)“ (výchozí 1 s), pak se
+  stáhne zpět do bodu — a takhle se opakuje, dokud ho uživatel nevypne. Ovládání jako
+  úkol 17, jen klávesou `B` (ťuknutí určí interval cyklu, třetí stisk vypne).
+- **Návrh:** `FireworkEvent.shape: 'breath'` (bez něj klasický výbuch); cyklus = rozepnutí
+  (~0,35 s, zpomaluje) + držení + stažení (~0,35 s, zrychluje). Když je cyklus delší než
+  interval, držení se zkrátí. Částice rovnoměrně po kružnici s jemným třpytem, záblesk
+  při rozepnutí. Pořadí `rand()` u klasického ohňostroje se nesmí změnit — nový tvar má
+  vlastní funkci.
+- **Soubory:** jako úkol 17 + `LayerStyle` (držení), `index.html`.
+- **Hotovo, když:** jednotkové testy: poloměr v čase odpovídá fázím cyklu, v čase držení
+  je stálý, na konci cyklu je nulový, zkrácení držení při krátkém intervalu; E2E: `B` třikrát
+  během nahrávání vytvoří dýchající ohňostroj a v exportovaném snímku uprostřed držení
+  je kolečko.
+- **Závisí na:** úkolu 17.
+
 ---
 
 ## Blokované / potřebuje mě
@@ -202,3 +279,10 @@ Odpovědi uživatele z 27. 10. 2026 (plánování před týdnem samostatné prá
   „Vyhlazení při držení S“ (výchozí 0 %), jen pro právě kreslený úsek; základ nové vrstvy 5 %.
 - **Metronom a instalátor `.exe`:** teď ne. **3 s hudby během odpočtu:** ano.
 - **Pohyblivé plátno** (nápad z konceptu): dál jen nezávazný nápad, nezařazeno.
+- **Nové efekty (úkoly 15–18):**
+  - prstenec maže obsah **všech vrstev**, kudy projde; `W` z kurzoru, `Shift+W` ze středu,
+  - jiskry létají **ze špičky** kreslené čáry, zapínají se ve vrstvě,
+  - opakovaný ohňostroj: interval se určí **ťuknutím do rytmu** (`G`: 1. stisk výbuch,
+    2. stisk určí interval, 3. vypne),
+  - dýchající ohňostroj: **roztáhne se do kolečka, drží (nastavitelně), stáhne se do bodu**,
+    opakuje se stejně jako opakovaný ohňostroj (klávesa `B`).
