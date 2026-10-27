@@ -3,7 +3,7 @@ import { existsSync, rmSync } from 'node:fs'
 import { readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { PROJECT_EXTENSION, type FileProject } from '../shared/project'
-import type { ExportStartOptions, OpenedProject } from '../shared/types'
+import { EXPORT_FORMATS, type ExportFormatId, type ExportStartOptions, type OpenedProject } from '../shared/types'
 import { exporter } from './exporter'
 
 const AUDIO_EXTENSIONS = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'opus']
@@ -83,6 +83,23 @@ function locateAudio(json: string, projectPath: string): string | null {
   }
 }
 
+/**
+ * Na Windows přejmenování selže, když cílový soubor právě někdo čte (antivir, zálohování,
+ * indexování) — stačí chvíli počkat a zkusit to znovu.
+ */
+async function renamePatiently(from: string, to: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rename(from, to)
+      return
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code ?? ''
+      if (attempt >= 5 || !['EPERM', 'EBUSY', 'EACCES'].includes(code)) throw err
+      await new Promise((resolve) => setTimeout(resolve, 40 * (attempt + 1)))
+    }
+  }
+}
+
 let pendingWrite: Promise<void> = Promise.resolve()
 
 /**
@@ -93,7 +110,7 @@ function writeFileSafely(path: string, content: string): Promise<void> {
   const write = pendingWrite.then(async () => {
     const temp = `${path}.tmp`
     await writeFile(temp, content, 'utf8')
-    await rename(temp, path)
+    await renamePatiently(temp, path)
   })
   pendingWrite = write.catch(() => {})
   return write
@@ -151,11 +168,12 @@ function registerIpc(): void {
     return target
   })
 
-  ipcMain.handle('export:pickPath', async (_e, defaultName: string): Promise<string | null> => {
+  ipcMain.handle('export:pickPath', async (_e, defaultName: string, format: ExportFormatId): Promise<string | null> => {
+    const { extension } = EXPORT_FORMATS[format] ?? EXPORT_FORMATS['mp4-h264']
     const result = await dialog.showSaveDialog(mainWindow!, {
       title: 'Exportovat video',
       defaultPath: defaultName,
-      filters: [{ name: 'Video MP4', extensions: ['mp4'] }]
+      filters: [{ name: `Video ${extension.toUpperCase()}`, extensions: [extension] }]
     })
     return result.canceled || !result.filePath ? null : result.filePath
   })

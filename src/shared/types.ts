@@ -27,8 +27,29 @@ export interface StrokePoint {
   t: number
 }
 
+/** Uzel křivky s táhly (absolutní souřadnice v logických px). */
+export interface CurveNode {
+  x: number
+  y: number
+  inX: number
+  inY: number
+  outX: number
+  outY: number
+}
+
+/**
+ * Tah převedený na editovatelnou křivku (kubické Bézierovy oblouky mezi uzly).
+ * `params[i]` říká, kde na křivce leží bod `points[i]`: číslo oblouku + poloha v něm (0–1).
+ */
+export interface StrokeCurve {
+  nodes: CurveNode[]
+  params: number[]
+}
+
 export interface Stroke {
   points: StrokePoint[]
+  /** Jen u tahu upraveného jako křivka; `points` jsou pak z křivky dopočítané. */
+  curve?: StrokeCurve
 }
 
 export interface FireworkEvent {
@@ -37,21 +58,46 @@ export interface FireworkEvent {
   t: number
   /** Seed náhodného generátoru — stejný seed = stejný ohňostroj v náhledu i exportu. */
   seed: number
+  /** Podíl částic 0–1 (chybí = plný ohňostroj). Menší mají ohňostroje sypané držením klávesy. */
+  density?: number
 }
 
 export interface Layer {
   id: string
   name: string
   visible: boolean
+  /** Posun celé vrstvy v čase (s): bod s časem t se zobrazí v čase skladby t + offset. */
+  offset: number
   style: LayerStyle
   strokes: Stroke[]
   fireworks: FireworkEvent[]
 }
 
+/** Výstupní formáty exportu; argumenty kodéru jsou v `src/main/exporter.ts`. */
+export const EXPORT_FORMATS = {
+  'mp4-h264': { label: 'MP4 (H.264) — přehraje všechno', extension: 'mp4' },
+  'mp4-h265': { label: 'MP4 (H.265) — menší soubor', extension: 'mp4' },
+  'webm-vp9': { label: 'WebM (VP9)', extension: 'webm' },
+  'mov-prores': { label: 'MOV (ProRes 422 HQ) — pro střih, velký soubor', extension: 'mov' }
+} as const
+
+export type ExportFormatId = keyof typeof EXPORT_FORMATS
+
+/** Nabízená rozlišení (vždy 16:9 jako plátno, sudé rozměry kvůli yuv420p). */
+export const EXPORT_RESOLUTIONS = [
+  { width: 1280, height: 720, label: '1280×720 (HD)' },
+  { width: 1920, height: 1080, label: '1920×1080 (Full HD)' },
+  { width: 2560, height: 1440, label: '2560×1440 (QHD)' },
+  { width: 3840, height: 2160, label: '3840×2160 (4K)' }
+] as const
+
+export const EXPORT_FPS = [24, 25, 30, 50, 60] as const
+
 export interface ExportSettings {
   width: number
   height: number
   fps: number
+  format: ExportFormatId
 }
 
 export interface Project {
@@ -76,6 +122,7 @@ export interface ExportStartOptions {
   width: number
   height: number
   fps: number
+  format: ExportFormatId
 }
 
 export interface ExportResult {
@@ -95,7 +142,7 @@ export interface KhApi {
   saveRecovery(json: string): Promise<void>
   loadRecovery(): Promise<{ json: string; audioPath: string | null } | null>
   clearRecovery(): Promise<void>
-  pickExportPath(defaultName: string): Promise<string | null>
+  pickExportPath(defaultName: string, format: ExportFormatId): Promise<string | null>
   exportStart(options: ExportStartOptions): Promise<ExportResult>
   /** Surový RGBA snímek; promise se vyřeší, až ho ffmpeg převezme (backpressure). */
   exportFrame(rgba: Uint8Array): Promise<ExportResult>

@@ -33,6 +33,7 @@ export function drawFirework(ctx: Ctx2D, fw: FireworkEvent, style: LayerStyle, c
   const age = time - fw.t
   if (age < 0 || age >= FIREWORK_LIFETIME) return false
   const size = style.fireworkSize
+  const density = fw.density ?? 1
   const rand = mulberry32(fw.seed)
 
   ctx.save()
@@ -40,7 +41,7 @@ export function drawFirework(ctx: Ctx2D, fw: FireworkEvent, style: LayerStyle, c
   ctx.lineCap = 'round'
 
   if (age < FLASH_SECONDS) {
-    const k = 1 - age / FLASH_SECONDS
+    const k = (1 - age / FLASH_SECONDS) * density
     const radius = 120 * size * (0.4 + 0.6 * (age / FLASH_SECONDS))
     const gradient = ctx.createRadialGradient(fw.x, fw.y, 0, fw.x, fw.y, radius)
     gradient.addColorStop(0, dimmed(mixWithWhite(color, 0.7), k))
@@ -53,7 +54,9 @@ export function drawFirework(ctx: Ctx2D, fw: FireworkEvent, style: LayerStyle, c
 
   const now = travel(age)
   const before = travel(Math.max(age - TAIL_SECONDS, 0))
-  for (let i = 0; i < PARTICLE_COUNT; i++) {
+  // Prořídlý ohňostroj = prvních několik částic téže posloupnosti.
+  const count = Math.round(PARTICLE_COUNT * density)
+  for (let i = 0; i < count; i++) {
     // Pořadí volání rand() se nesmí měnit — určuje vzhled už uložených ohňostrojů.
     const angle = rand() * Math.PI * 2
     const speed = BASE_SPEED * size * (0.08 + 0.92 * Math.sqrt(rand()))

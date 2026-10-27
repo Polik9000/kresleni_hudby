@@ -2,14 +2,14 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { once } from 'node:events'
 import { rm } from 'node:fs/promises'
 import ffmpegStatic from 'ffmpeg-static'
-import type { ExportResult, ExportStartOptions } from '../shared/types'
+import type { ExportFormatId, ExportResult, ExportStartOptions } from '../shared/types'
 
 /** V zabalené aplikaci leží binárka mimo asar archiv. */
 const ffmpegPath = (ffmpegStatic as unknown as string | null)?.replace('app.asar', 'app.asar.unpacked') ?? null
 
 /**
- * Výstupní formát = sada argumentů kodéru. Další formáty (fáze 2) se přidají jako nové
- * položky; zbytek pipeline (surové snímky na stdin + audio jako druhý vstup) se nemění.
+ * Výstupní formát = sada argumentů kodéru. Nový formát = nová položka zde a v `EXPORT_FORMATS`
+ * (název a přípona); zbytek pipeline (surové snímky na stdin + audio jako druhý vstup) se nemění.
  */
 interface OutputFormat {
   videoArgs: string[]
@@ -17,18 +17,44 @@ interface OutputFormat {
   containerArgs: string[]
 }
 
-const FORMATS = {
+// Převod RGB → YUV v bt709, jinak by barvy v HD přehrávačích lehce ujely.
+const toYuv = (pixelFormat: string): string[] => [
+  '-vf', `scale=out_color_matrix=bt709:out_range=tv,format=${pixelFormat}`
+]
+const BT709 = ['-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709']
+
+const FORMATS: Record<ExportFormatId, OutputFormat> = {
   'mp4-h264': {
+    videoArgs: [...toYuv('yuv420p'), '-c:v', 'libx264', '-preset', 'medium', '-crf', '17', ...BT709],
+    audioArgs: ['-c:a', 'aac', '-b:a', '256k'],
+    containerArgs: ['-movflags', '+faststart']
+  },
+  'mp4-h265': {
+    // hvc1: bez této značky H.265 v MP4 nepřehraje QuickTime ani zařízení Apple.
+    // log-level: x265 jinak vypisuje statistiky na stderr, odkud se bere text chyby.
     videoArgs: [
-      // Převod RGB → YUV v bt709, jinak by barvy v HD přehrávačích lehce ujely.
-      '-vf', 'scale=out_color_matrix=bt709:out_range=tv,format=yuv420p',
-      '-c:v', 'libx264', '-preset', 'medium', '-crf', '17',
-      '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709'
+      ...toYuv('yuv420p'),
+      '-c:v', 'libx265', '-preset', 'medium', '-crf', '20', '-tag:v', 'hvc1', '-x265-params', 'log-level=error',
+      ...BT709
     ],
     audioArgs: ['-c:a', 'aac', '-b:a', '256k'],
     containerArgs: ['-movflags', '+faststart']
+  },
+  'webm-vp9': {
+    videoArgs: [
+      ...toYuv('yuv420p'),
+      '-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '24', '-deadline', 'good', '-cpu-used', '4', '-row-mt', '1',
+      ...BT709
+    ],
+    audioArgs: ['-c:a', 'libopus', '-b:a', '192k'],
+    containerArgs: []
+  },
+  'mov-prores': {
+    videoArgs: [...toYuv('yuv422p10le'), '-c:v', 'prores_ks', '-profile:v', '3', '-vendor', 'apl0', ...BT709],
+    audioArgs: ['-c:a', 'pcm_s16le'],
+    containerArgs: []
   }
-} satisfies Record<string, OutputFormat>
+}
 
 function buildArgs(options: ExportStartOptions, format: OutputFormat): string[] {
   const args = [
@@ -52,7 +78,7 @@ class ExportSession {
   private failed = false
 
   constructor(private readonly options: ExportStartOptions) {
-    this.proc = spawn(ffmpegPath!, buildArgs(options, FORMATS['mp4-h264']), { windowsHide: true })
+    this.proc = spawn(ffmpegPath!, buildArgs(options, FORMATS[options.format]), { windowsHide: true })
     this.proc.stderr.on('data', (chunk: Buffer) => {
       this.stderr = (this.stderr + chunk.toString()).slice(-4000)
     })
@@ -107,6 +133,7 @@ export const exporter = {
   start(options: ExportStartOptions): ExportResult {
     if (!ffmpegPath) return { ok: false, error: 'Nenalezen ffmpeg (balíček ffmpeg-static).' }
     if (session) return { ok: false, error: 'Export už běží.' }
+    if (!(options.format in FORMATS)) return { ok: false, error: 'Neznámý formát exportu.' }
     session = new ExportSession(options)
     return { ok: true }
   },

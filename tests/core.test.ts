@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createProject, parseProject, projectContentEnd, serializeProject } from '../src/shared/project'
 import type { Stroke } from '../src/shared/types'
+import { applyCurve, curvePoint, fitCurve, moveHandle, moveNode, sliceStroke } from '../src/renderer/src/curve'
 import { mulberry32 } from '../src/renderer/src/render/fireworks'
 import { lastIndexAtOrBefore, smoothedPositions, strokeWidths } from '../src/renderer/src/render/stroke'
 
@@ -13,8 +14,11 @@ describe('projektový soubor', () => {
     layer.style.lineColor = '#ff0000'
     layer.style.widthMode = 'dynamic'
     layer.style.fadeSeconds = 7.5
+    layer.offset = -1.25
+    project.exportSettings = { width: 3840, height: 2160, fps: 60, format: 'mov-prores' }
     layer.strokes.push({ points: [{ x: 10.5, y: 20, t: 1.25 }, { x: 300, y: 400.4, t: 1.5 }] })
     layer.fireworks.push({ x: 960, y: 540, t: 3.2, seed: 4000000000 })
+    layer.fireworks.push({ x: 100, y: 200, t: 3.3, seed: 7, density: 0.2 })
 
     const loaded = parseProject(serializeProject(project))
     expect(loaded).toEqual(project)
@@ -35,6 +39,37 @@ describe('projektový soubor', () => {
     const { style } = parseProject(json).layers[0]
     expect(style.lineColor).toBe('#123456')
     expect(style.fadeSeconds).toBe(5)
+  })
+
+  it('soubor verze 1 dostane nulový posun vrstvy a výchozí formát exportu', () => {
+    const json = JSON.stringify({
+      format: 'kresleni-hudby',
+      version: 1,
+      audio: null,
+      export: { width: 1920, height: 1080, fps: 30 },
+      layers: [{ id: 'a', name: 'A', visible: true, style: {}, strokes: [], fireworks: [] }]
+    })
+    const loaded = parseProject(json)
+    expect(loaded.layers[0].offset).toBe(0)
+    expect(loaded.exportSettings).toEqual({ width: 1920, height: 1080, fps: 30, format: 'mp4-h264' })
+  })
+
+  it('neznámé nastavení exportu nahradí výchozím', () => {
+    const json = JSON.stringify({
+      format: 'kresleni-hudby',
+      version: 2,
+      audio: null,
+      export: { width: 1001, height: 777, fps: 17, format: 'avi' },
+      layers: []
+    })
+    expect(parseProject(json).exportSettings).toEqual({ width: 1920, height: 1080, fps: 30, format: 'mp4-h264' })
+  })
+
+  it('konec obsahu počítá s posunem vrstvy', () => {
+    const project = createProject()
+    project.layers[0].offset = 4
+    project.layers[0].fireworks.push({ x: 0, y: 0, t: 10, seed: 1 })
+    expect(projectContentEnd(project)).toBe(17)
   })
 
   it('konec obsahu zahrnuje dobu mizení poslední stopy', () => {
@@ -115,6 +150,87 @@ describe('vyhlazení čáry', () => {
     const actual = smoothedPositions(growing, 0.7)
     actual.ys.forEach((y, i) => expect(y).toBeCloseTo(expected.ys[i], 9))
     actual.xs.forEach((x, i) => expect(x).toBeCloseTo(expected.xs[i], 9))
+  })
+})
+
+describe('tah jako křivka', () => {
+  // Vlnovka: 300 bodů, čas roste nerovnoměrně (zrychlující tah).
+  const wave: Stroke = {
+    points: Array.from({ length: 300 }, (_, i) => {
+      const f = i / 299
+      return { x: 100 + 1500 * f, y: 500 + 250 * Math.sin(f * Math.PI * 4), t: 2 + 3 * f * f }
+    })
+  }
+  const curve = fitCurve(wave.points)
+
+  it('proloží body s odchylkou do tolerance a výrazně menším počtem uzlů', () => {
+    expect(curve.nodes.length).toBeGreaterThan(3)
+    expect(curve.nodes.length).toBeLessThan(40)
+    const fitted = applyCurve(wave, curve)
+    const worst = Math.max(...fitted.points.map((p, i) => Math.hypot(p.x - wave.points[i].x, p.y - wave.points[i].y)))
+    expect(worst).toBeLessThan(3)
+  })
+
+  it('zachová časy bodů a uzly leží na koncích oblouků', () => {
+    const fitted = applyCurve(wave, curve)
+    expect(fitted.points.map((p) => p.t)).toEqual(wave.points.map((p) => p.t))
+    expect(curve.params[0]).toBe(0)
+    expect(curve.params.at(-1)).toBe(curve.nodes.length - 1)
+    expect(curve.params.every((p, i) => i === 0 || p >= curve.params[i - 1] - 0.05)).toBe(true)
+    expect(curvePoint(curve, 0)).toEqual({ x: wave.points[0].x, y: wave.points[0].y })
+  })
+
+  it('posun uzlu změní jen sousední oblouky', () => {
+    const middle = Math.floor(curve.nodes.length / 2)
+    const before = applyCurve(wave, curve)
+    const after = applyCurve(wave, moveNode(curve, middle, 0, 80))
+    after.points.forEach((p, i) => {
+      const moved = Math.hypot(p.x - before.points[i].x, p.y - before.points[i].y) > 1e-9
+      const near = curve.params[i] > middle - 1 && curve.params[i] < middle + 1
+      expect(moved).toBe(near)
+    })
+    expect(after.curve!.nodes[middle].y).toBeCloseTo(curve.nodes[middle].y + 80)
+  })
+
+  it('táhlo se zrcadlí do protisměru a protější si nechá délku', () => {
+    const node = curve.nodes[1]
+    const oppositeLength = Math.hypot(node.outX - node.x, node.outY - node.y)
+    const moved = moveHandle(curve, 1, 'in', node.x, node.y - 100, true).nodes[1]
+    expect(moved.outX).toBeCloseTo(node.x)
+    expect(moved.outY).toBeCloseTo(node.y + oppositeLength)
+    const broken = moveHandle(curve, 1, 'in', node.x, node.y - 100, false).nodes[1]
+    expect([broken.outX, broken.outY]).toEqual([node.outX, node.outY])
+  })
+
+  it('výřez mezi uzly dá samostatný tah se stejným tvarem i časy', () => {
+    const fitted = applyCurve(wave, curve)
+    const part = sliceStroke(fitted, curve, 1, 3, true)
+    expect(part.curve!.nodes).toHaveLength(3)
+    expect(part.curve!.params[0]).toBe(0)
+    expect(part.curve!.params.at(-1)).toBe(2)
+    const first = fitted.points.findIndex((_, i) => curve.params[i] >= 1)
+    expect(part.points[0]).toEqual(fitted.points[first])
+    const again = applyCurve(part, part.curve!)
+    again.points.forEach((p, i) => {
+      expect(p.x).toBeCloseTo(part.points[i].x, 6)
+      expect(p.y).toBeCloseTo(part.points[i].y, 6)
+    })
+  })
+
+  it('krátké tahy: jeden bod = jeden uzel, dva body = úsečka', () => {
+    expect(fitCurve([{ x: 5, y: 6 }]).nodes).toHaveLength(1)
+    const line = fitCurve([{ x: 0, y: 0 }, { x: 30, y: 0 }])
+    expect(line.nodes).toHaveLength(2)
+    expect(curvePoint(line, 0.5).x).toBeCloseTo(15)
+  })
+
+  it('křivka se uloží do projektu a načte zpět', () => {
+    const project = createProject()
+    const short: Stroke = { points: [{ x: 0, y: 0, t: 1 }, { x: 30, y: 0, t: 1.5 }] }
+    project.layers[0].strokes.push(applyCurve(short, fitCurve(short.points)), { points: [{ x: 1, y: 2, t: 3 }] })
+    const loaded = parseProject(serializeProject(project))
+    expect(loaded).toEqual(project)
+    expect(loaded.layers[0].strokes[1].curve).toBeUndefined()
   })
 })
 

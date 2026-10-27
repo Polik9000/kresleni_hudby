@@ -1,7 +1,18 @@
-import { createLayer, createProject, parseProject, projectContentEnd, serializeProject } from '../../shared/project'
 import {
+  createLayer,
+  createProject,
+  LAYER_COLORS,
+  parseProject,
+  projectContentEnd,
+  serializeProject
+} from '../../shared/project'
+import {
+  EXPORT_FORMATS,
+  EXPORT_FPS,
+  EXPORT_RESOLUTIONS,
   STAGE_HEIGHT,
   STAGE_WIDTH,
+  type ExportFormatId,
   type FireworkEvent,
   type Layer,
   type LayerStyle,
@@ -9,9 +20,10 @@ import {
   type Stroke
 } from '../../shared/types'
 import { AudioEngine } from './audio'
+import { Editor } from './editor'
 import { exportVideo } from './exportVideo'
 import { FIREWORK_LIFETIME } from './render/fireworks'
-import { SceneRenderer } from './render/scene'
+import { layersAt, SceneRenderer } from './render/scene'
 import { Timeline } from './timeline'
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T
@@ -21,14 +33,22 @@ const CLICK_MAX_DISTANCE = 6
 const CLICK_MAX_SECONDS = 0.35
 const AUTOSAVE_DELAY_MS = 1000
 const COUNTDOWN_SECONDS = 3
+/** Podíl částic u ohňostrojů sypaných držením klávesy F — plný počet by splýval v jednu záři. */
+const HELD_FIREWORK_DENSITY = 0.2
 
 // ---------- Stav ----------
 
 let project: Project = createProject()
+/** Vrstva, do které se nahrává a kterou upravuje panel nastavení. */
+let activeLayerId = project.layers[0].id
+/** Při nahrávání ukázat jen aktivní vrstvu (ostatní se jinak přehrávají jako reference). */
+let soloWhileRecording = false
 let projectPath: string | null = null
 let dirty = false
 let recording = false
 let exporting = false
+/** Režim úprav: plátno nekreslí, ale vybírá a upravuje nahrané čáry a ohňostroje aktivní vrstvy. */
+let editMode = false
 let loadingAudio = false
 /** Roste s každou změnou — pozná se podle něj, jestli během ukládání nepřibyla další. */
 let changeCounter = 0
@@ -40,9 +60,12 @@ let countdownTimer = 0
 /** Vrstva pro kreslení nanečisto (mimo nahrávání). Běží na reálném čase a nikam se neukládá. */
 const scratch: Layer = createLayer('nanečisto')
 
+/**
+ * Stav pro Zpět/Znovu: které vrstvy existují a co je v nich nahráno. Objekty vrstev zůstávají
+ * tytéž, takže název, vzhled a posun vrstvy krok zpět nemění.
+ */
 interface Snapshot {
-  strokes: Stroke[]
-  fireworks: FireworkEvent[]
+  layers: { layer: Layer; strokes: Stroke[]; fireworks: FireworkEvent[] }[]
 }
 const undoStack: Snapshot[] = []
 const redoStack: Snapshot[] = []
@@ -66,21 +89,42 @@ let lastPointer: { x: number; y: number } | null = null
 const audio = new AudioEngine()
 const stage = $<HTMLCanvasElement>('stage')
 const renderer = new SceneRenderer(stage)
+/** Tentýž kontext, do kterého kreslí `renderer` — překryv režimu úprav se kreslí přes hotový snímek. */
+const stageCtx = stage.getContext('2d')!
 
-/** F1 pracuje s jedinou vrstvou; datový model už počítá s více (fáze 2). */
-const layer = (): Layer => project.layers[0]
+/** Aktivní vrstva. */
+const layer = (): Layer => project.layers.find((l) => l.id === activeLayerId) ?? project.layers[0]
 const wallTime = (): number => performance.now() / 1000
+
+const editor = new Editor({
+  layer,
+  time: () => layerTime(layer(), audio.time),
+  beginChange: () => pushUndo(snapshot()),
+  changed: () => {
+    markDirty()
+    contentChanged()
+  },
+  selectionChanged: () => updateEditPanel()
+})
 
 const timeline = new Timeline(
   $<HTMLCanvasElement>('timeline'),
   {
     duration: timelineDuration,
     time: () => audio.time,
-    peaks: (columns) => audio.peaks(columns),
-    layers: () => project.layers
+    peaks: (columns, from, to) => audio.peaks(columns, from, to),
+    layers: () => project.layers,
+    activeLayer: layer
   },
-  (time) => {
-    if (!recording) audio.seek(time)
+  {
+    onSeek: (time) => {
+      if (!recording) audio.seek(time)
+    },
+    onLayerOffset: (target, offset) => {
+      if (recording) return
+      selectLayer(target.id)
+      setLayerOffset(Math.round(offset * 100) / 100)
+    }
   }
 )
 
@@ -160,6 +204,10 @@ async function autosave(): Promise<void> {
 
 function updateControls(): void {
   document.body.classList.toggle('recording', recording)
+  document.body.classList.toggle('editing', editMode)
+  $('btn-edit').classList.toggle('on', editMode)
+  $<HTMLButtonElement>('btn-edit').disabled = recording
+  updateEditPanel()
   $('btn-play').textContent = audio.playing ? '⏸' : '▶'
   $('btn-record').textContent = recording
     ? '■ Zastavit'
@@ -173,11 +221,74 @@ function updateControls(): void {
   $<HTMLButtonElement>('btn-redo').disabled = recording || redoStack.length === 0
   $<HTMLButtonElement>('btn-clear').disabled =
     recording || (layer().strokes.length === 0 && layer().fireworks.length === 0)
+  $<HTMLButtonElement>('btn-layer-add').disabled = recording
+  $<HTMLButtonElement>('btn-layer-delete').disabled = recording || project.layers.length < 2
+  renderLayerList()
   $('layer-stats').textContent = `Nahráno: ${layer().strokes.length} tahů, ${layer().fireworks.length} ohňostrojů`
   $('audio-name').textContent = project.audioPath
     ? fileName(project.audioPath) + (audio.hasAudio ? '' : ' (nenalezeno)')
     : 'Žádné audio'
 }
+
+// ---------- Režim úprav ----------
+
+const editInputs = {
+  time: $<HTMLInputElement>('edit-time'),
+  copy: $<HTMLButtonElement>('btn-copy'),
+  paste: $<HTMLButtonElement>('btn-paste'),
+  remove: $<HTMLButtonElement>('btn-delete-item')
+}
+
+function updateEditPanel(): void {
+  $('edit-panel').hidden = !editMode
+  if (!editMode) return
+  $('edit-info').textContent = editor.describe()
+  const start = editor.selectedStart()
+  editInputs.time.disabled = start === null
+  if (document.activeElement !== editInputs.time) {
+    editInputs.time.value = start === null ? '' : (start + layer().offset).toFixed(2)
+  }
+  editInputs.copy.disabled = !editor.hasSelection
+  editInputs.remove.disabled = !editor.hasSelection
+  editInputs.paste.disabled = !editor.hasClipboard
+}
+
+function setEditMode(on: boolean): void {
+  if (editMode === on || (on && (recording || exporting || countdownLeft > 0))) return
+  finishActive(null)
+  setKeyDraw(false)
+  editMode = on
+  if (!on) editor.clear()
+  updateControls()
+}
+
+function copySelection(): void {
+  if (editor.copy()) toast('Zkopírováno — Ctrl+V vloží na místo přehrávací hlavy.')
+}
+
+function pasteClipboard(): void {
+  if (!editor.paste()) toast('Schránka je prázdná — nejdřív něco vyber a zkopíruj (Ctrl+C).')
+}
+
+function initEditPanel(): void {
+  $('btn-edit').onclick = () => setEditMode(!editMode)
+  editInputs.copy.onclick = copySelection
+  editInputs.paste.onclick = pasteClipboard
+  editInputs.remove.onclick = () => editor.deleteSelected()
+  // Posun v čase až po potvrzení hodnoty — každá změna je jeden krok pro Zpět.
+  editInputs.time.addEventListener('change', () => {
+    const value = Number(editInputs.time.value)
+    if (editInputs.time.value !== '' && Number.isFinite(value)) editor.setSelectedStart(value - layer().offset)
+    editInputs.time.blur()
+  })
+  editInputs.time.addEventListener('blur', updateEditPanel)
+  editInputs.time.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === 'Escape') editInputs.time.blur()
+  })
+}
+
+/** Dosah kliknutí v režimu úprav: ~10 px obrazovky v logických px plátna. */
+const hitRadius = (): number => (10 * STAGE_WIDTH) / stage.getBoundingClientRect().width
 
 /** Obsah vrstvy se změnil — překreslit značky na ose a ovládací prvky. */
 function contentChanged(): void {
@@ -185,10 +296,99 @@ function contentChanged(): void {
   updateControls()
 }
 
+// ---------- Vrstvy ----------
+
+function renderLayerList(): void {
+  const current = layer()
+  const rows = project.layers.map((l) => {
+    const row = document.createElement('div')
+    row.className = `layer-row${l === current ? ' active' : ''}${l.visible ? '' : ' off'}`
+    row.dataset.id = l.id
+    row.onclick = () => selectLayer(l.id)
+
+    const eye = document.createElement('button')
+    eye.className = 'eye'
+    eye.textContent = '👁'
+    eye.title = l.visible ? 'Skrýt vrstvu (nebude ani v exportu)' : 'Zobrazit vrstvu'
+    eye.onclick = (e) => {
+      e.stopPropagation()
+      l.visible = !l.visible
+      markDirty()
+      contentChanged()
+    }
+    const swatch = document.createElement('span')
+    swatch.className = 'swatch'
+    swatch.style.background = l.style.lineColor
+    const name = document.createElement('span')
+    name.className = 'name'
+    name.textContent = l.name || 'Bez názvu'
+    const count = document.createElement('span')
+    count.className = 'muted small'
+    count.textContent = `${l.strokes.length} / ${l.fireworks.length}`
+    count.title = 'tahů / ohňostrojů'
+    row.append(eye, swatch, name, count)
+    return row
+  })
+  $('layer-list').replaceChildren(...rows)
+}
+
+function selectLayer(id: string): void {
+  if (recording || id === activeLayerId || !project.layers.some((l) => l.id === id)) return
+  activeLayerId = id
+  syncPanel()
+  contentChanged()
+}
+
+/** Přepnutí na sousední vrstvu klávesou — jde i na celé obrazovce, kde seznam vrstev není vidět. */
+function selectNeighbourLayer(step: number): void {
+  const next = project.layers[project.layers.indexOf(layer()) + step]
+  if (recording || !next) return
+  selectLayer(next.id)
+  toast(`Vrstva: ${next.name || 'Bez názvu'}`)
+}
+
+function addLayer(): void {
+  if (recording) return
+  pushUndo(snapshot())
+  const names = new Set(project.layers.map((l) => l.name))
+  let number = project.layers.length + 1
+  while (names.has(`Vrstva ${number}`)) number++
+  const added = createLayer(`Vrstva ${number}`)
+  // Nová vrstva přebírá vzhled té aktivní, jen s jinou barvou čáry, aby šly na první pohled rozlišit.
+  const used = new Set(project.layers.map((l) => l.style.lineColor))
+  const lineColor =
+    LAYER_COLORS.find((color) => !used.has(color)) ?? LAYER_COLORS[project.layers.length % LAYER_COLORS.length]
+  added.style = { ...layer().style, lineColor }
+  project.layers.push(added)
+  activeLayerId = added.id
+  markDirty()
+  syncPanel()
+  contentChanged()
+}
+
+function deleteLayer(): void {
+  if (recording || project.layers.length < 2) return
+  pushUndo(snapshot())
+  const index = project.layers.indexOf(layer())
+  project.layers.splice(index, 1)
+  activeLayerId = project.layers[Math.min(index, project.layers.length - 1)].id
+  markDirty()
+  syncPanel()
+  contentChanged()
+}
+
+function setLayerOffset(offset: number): void {
+  layer().offset = offset
+  if (document.activeElement !== styleInputs.offset) styleInputs.offset.value = String(offset)
+  timeline.invalidate()
+  markDirty()
+}
+
 // ---------- Panel nastavení vrstvy ----------
 
 const styleInputs = {
   name: $<HTMLInputElement>('layer-name'),
+  offset: $<HTMLInputElement>('layer-offset'),
   lineColor: $<HTMLInputElement>('line-color'),
   fireworkColor: $<HTMLInputElement>('firework-color'),
   width: $<HTMLInputElement>('width'),
@@ -211,8 +411,9 @@ function updateStyleLabels(): void {
 
 /** Propíše stav vrstvy do formuláře (po načtení/novém projektu). */
 function syncPanel(): void {
-  const { style, name } = layer()
+  const { style, name, offset } = layer()
   styleInputs.name.value = name
+  styleInputs.offset.value = String(offset)
   styleInputs.lineColor.value = style.lineColor
   styleInputs.fireworkColor.value = style.fireworkColor
   styleInputs.width.value = String(style.width)
@@ -228,6 +429,7 @@ function bindStyle(input: HTMLInputElement, apply: (style: LayerStyle, value: st
   input.addEventListener('input', () => {
     apply(layer().style, input.value)
     updateStyleLabels()
+    renderLayerList()
     timeline.invalidate()
     markDirty()
   })
@@ -248,11 +450,20 @@ function initPanel(): void {
   }
   styleInputs.name.addEventListener('input', () => {
     layer().name = styleInputs.name.value
+    renderLayerList()
     markDirty()
   })
-  styleInputs.name.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === 'Escape') styleInputs.name.blur()
+  styleInputs.offset.addEventListener('input', () => {
+    const value = Number(styleInputs.offset.value)
+    if (styleInputs.offset.value !== '' && Number.isFinite(value)) setLayerOffset(value)
   })
+  // Rozepsanou nebo neplatnou hodnotu po opuštění pole nahradit skutečným posunem.
+  styleInputs.offset.addEventListener('blur', () => (styleInputs.offset.value = String(layer().offset)))
+  for (const input of [styleInputs.name, styleInputs.offset]) {
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === 'Escape') input.blur()
+    })
+  }
 }
 
 // ---------- Kreslení a ohňostroje ----------
@@ -289,16 +500,21 @@ function stagePosition(e: PointerEvent, moved = false): { x: number; y: number }
   }
 }
 
+/** Čas skladby přepočtený na vlastní čas vrstvy (posunutá vrstva má záznam uložený bez posunu). */
+const layerTime = (target: Layer, songTime: number): number => songTime - target.offset
+
 /** Čas události na časové ose cílové vrstvy, opravený o zpoždění mezi vznikem a zpracováním události. */
 function eventTime(e: Event, target: Layer): number {
   const lag = Math.min(Math.max(performance.now() - e.timeStamp, 0), 100) / 1000
-  return target === scratch ? wallTime() - lag : Math.max(audio.time - lag, 0)
+  return target === scratch ? wallTime() - lag : layerTime(target, Math.max(audio.time - lag, 0))
 }
 
 const drawTarget = (): Layer => (recording ? layer() : scratch)
 
-function addFirework(target: Layer, x: number, y: number, t: number): void {
-  target.fireworks.push({ x, y, t, seed: Math.floor(Math.random() * 0x100000000) })
+function addFirework(target: Layer, x: number, y: number, t: number, density = 1): void {
+  const fw: FireworkEvent = { x, y, t, seed: Math.floor(Math.random() * 0x100000000) }
+  if (density < 1) fw.density = density
+  target.fireworks.push(fw)
   if (target !== scratch) contentChanged()
 }
 
@@ -329,7 +545,7 @@ function beginStroke(pointerId: number, pos: { x: number; y: number }, t: number
  * bez držení tlačítka. Zvednutí prstu z touchpadu tah nepřeruší — kurzor zůstane stát.
  */
 function setKeyDraw(held: boolean, e?: Event): void {
-  if (keyDrawHeld === held) return
+  if (keyDrawHeld === held || (held && editMode)) return
   keyDrawHeld = held
   $('draw-badge').hidden = !held
   if (!held) {
@@ -349,6 +565,12 @@ function initStageInput(): void {
     const pos = stagePosition(e)
     const t = eventTime(e, target)
     lastPointer = pos
+    if (editMode) {
+      if (e.button !== 0) return
+      stage.setPointerCapture(e.pointerId)
+      editor.pointerDown(pos, e, hitRadius())
+      return
+    }
     // Při kreslení klávesou se ťuknutí na touchpad ignoruje (stává se omylem); ohňostroj jen přes F.
     if (keyDrawHeld) return
     if (e.button === 2) {
@@ -365,6 +587,12 @@ function initStageInput(): void {
     // Jejich pohyby dávají dohromady pohyb události `e`, takže se započítá jen jedno z toho.
     const coalesced = e.getCoalescedEvents()
     const samples = coalesced.length > 0 ? coalesced : [e]
+    if (editMode) {
+      for (const sample of samples) lastPointer = stagePosition(sample, true)
+      if (lastPointer) editor.pointerMove(lastPointer, e.altKey)
+      showLockedCursor()
+      return
+    }
     // Klávesa kreslení je dole, ale tah neběží (kurzor byl mimo plátno, nebo začalo nahrávání).
     if (keyDrawHeld && !active && !exporting) {
       const target = drawTarget()
@@ -388,6 +616,7 @@ function initStageInput(): void {
   })
 
   const release = (e: PointerEvent): void => {
+    if (editMode) editor.pointerUp()
     if (active && e.pointerId === active.pointerId) finishActive(eventTime(e, active.target))
   }
   stage.addEventListener('pointerup', release)
@@ -404,10 +633,12 @@ function initStageInput(): void {
   window.addEventListener('blur', () => setKeyDraw(false))
 }
 
-function fireworkAtPointer(): void {
+/** `held`: klávesa je držená (opakování) — sype se proud menších ohňostrojů místo plných. */
+function fireworkAtPointer(held: boolean): void {
   if (!lastPointer || exporting) return
   const target = drawTarget()
-  addFirework(target, lastPointer.x, lastPointer.y, target === scratch ? wallTime() : audio.time)
+  const t = target === scratch ? wallTime() : layerTime(target, audio.time)
+  addFirework(target, lastPointer.x, lastPointer.y, t, held ? HELD_FIREWORK_DENSITY : 1)
 }
 
 function pruneScratch(now: number): void {
@@ -420,12 +651,20 @@ function pruneScratch(now: number): void {
 
 // ---------- Transport a nahrávání ----------
 
-const snapshot = (): Snapshot => ({ strokes: layer().strokes.slice(), fireworks: layer().fireworks.slice() })
+const snapshot = (): Snapshot => ({
+  layers: project.layers.map((l) => ({ layer: l, strokes: l.strokes.slice(), fireworks: l.fireworks.slice() }))
+})
 
 function restore(state: Snapshot): void {
-  layer().strokes = state.strokes
-  layer().fireworks = state.fireworks
+  project.layers = state.layers.map(({ layer: l, strokes, fireworks }) => {
+    l.strokes = strokes
+    l.fireworks = fireworks
+    return l
+  })
+  // Aktivní vrstva mohla krokem zpět zaniknout.
+  activeLayerId = layer().id
   markDirty()
+  syncPanel()
   contentChanged()
 }
 
@@ -451,7 +690,10 @@ function redo(): void {
 function clearLayer(): void {
   if (recording || (layer().strokes.length === 0 && layer().fireworks.length === 0)) return
   pushUndo(snapshot())
-  restore({ strokes: [], fireworks: [] })
+  layer().strokes = []
+  layer().fireworks = []
+  markDirty()
+  contentChanged()
 }
 
 /** Odpočet před nahráváním — čas položit ruku na myš/pero a připravit se na první tón. */
@@ -486,10 +728,16 @@ function toggleRecording(): void {
 
 async function startRecording(): Promise<void> {
   if (recording || exporting) return
+  setEditMode(false)
   finishActive(null)
   // Nejdřív rozběhnout hodiny — smyčka snímků bere "nahrává se, ale nehraje" jako konec skladby.
   await audio.play()
   recordSnapshot = snapshot()
+  // Do skryté vrstvy by se kreslilo naslepo.
+  if (!layer().visible) {
+    layer().visible = true
+    markDirty()
+  }
   recording = true
   updateControls()
 }
@@ -502,8 +750,9 @@ function stopRecording(): void {
   audio.pause()
   const before = recordSnapshot!
   recordSnapshot = null
+  const prior = before.layers.find((entry) => entry.layer === layer())!
   // Nahrávání do vrstvy přidává (overdub); celý průchod jde vrátit jedním "Zpět".
-  if (layer().strokes.length !== before.strokes.length || layer().fireworks.length !== before.fireworks.length) {
+  if (layer().strokes.length !== prior.strokes.length || layer().fireworks.length !== prior.fireworks.length) {
     pushUndo(before)
     markDirty()
   }
@@ -534,6 +783,7 @@ function resetSession(next: Project, path: string | null): void {
   audio.unload()
   window.clearTimeout(autosaveTimer)
   project = next
+  activeLayerId = next.layers[0].id
   projectPath = path
   dirty = false
   $('save-status').textContent = ''
@@ -649,21 +899,60 @@ async function saveProject(saveAs: boolean): Promise<void> {
 
 // ---------- Export ----------
 
-async function runExport(): Promise<void> {
-  if (exporting) return
+const exportOptions = $<HTMLDialogElement>('export-options')
+const exportInputs = {
+  resolution: $<HTMLSelectElement>('export-resolution'),
+  fps: $<HTMLSelectElement>('export-fps'),
+  format: $<HTMLSelectElement>('export-format')
+}
+
+function initExportOptions(): void {
+  const option = (value: string, label: string): HTMLOptionElement => new Option(label, value)
+  exportInputs.resolution.append(...EXPORT_RESOLUTIONS.map((r) => option(`${r.width}x${r.height}`, r.label)))
+  exportInputs.fps.append(...EXPORT_FPS.map((fps) => option(String(fps), `${fps} snímků/s`)))
+  exportInputs.format.append(...Object.entries(EXPORT_FORMATS).map(([id, format]) => option(id, format.label)))
+  $('export-options-cancel').onclick = () => exportOptions.close()
+  $('export-go').onclick = () => {
+    const [width, height] = exportInputs.resolution.value.split('x').map(Number)
+    const next = { width, height, fps: Number(exportInputs.fps.value), format: exportInputs.format.value as ExportFormatId }
+    const previous = project.exportSettings
+    // Nastavení exportu je součást projektu — příště se nabídne stejné.
+    const changed = (Object.keys(next) as (keyof typeof next)[]).some((key) => next[key] !== previous[key])
+    project.exportSettings = next
+    if (changed) markDirty()
+    exportOptions.close()
+    void runExport()
+  }
+}
+
+/** Export začíná volbou rozlišení, snímkové frekvence a formátu. */
+async function openExportOptions(): Promise<void> {
+  if (exporting || exportOptions.open) return
   stopRecording()
   audio.pause()
   updateControls()
   // Na celé obrazovce je kurzor zamčený v plátně a dialog exportu by nešel ovládat.
   if (document.fullscreenElement) await document.exitFullscreen()
 
-  const duration = audio.hasAudio ? audio.duration : projectContentEnd(project) + 0.5
   if (!audio.hasAudio && projectContentEnd(project) === 0) {
     toast('Není co exportovat — importujte audio nebo něco nahrajte.', true)
     return
   }
+  const { width, height, fps, format } = project.exportSettings
+  exportInputs.resolution.value = `${width}x${height}`
+  exportInputs.fps.value = String(fps)
+  exportInputs.format.value = format
+  const hidden = project.layers.filter((l) => !l.visible).length
+  $('export-hidden-note').textContent = hidden > 0 ? `Skryté vrstvy (${hidden}) ve videu nebudou.` : ''
+  exportOptions.showModal()
+}
+
+async function runExport(): Promise<void> {
+  if (exporting) return
+  const duration = audio.hasAudio ? audio.duration : projectContentEnd(project) + 0.5
+  const { format } = project.exportSettings
   const baseName = projectPath ? fileName(projectPath).replace(/\.[^.]+$/, '') : 'vizualizace'
-  const outPath = await window.kh.pickExportPath(`${baseName}.mp4`)
+  const outPath = await window.kh.pickExportPath(`${baseName}.${EXPORT_FORMATS[format].extension}`, format)
   if (!outPath) return
 
   const dialog = $<HTMLDialogElement>('export-dialog')
@@ -767,7 +1056,7 @@ function initButtons(): void {
   $('btn-save').onclick = () => void saveProject(false)
   $('btn-save-as').onclick = () => void saveProject(true)
   $('btn-import').onclick = () => void importAudio()
-  $('btn-export').onclick = () => void runExport()
+  $('btn-export').onclick = () => void openExportOptions()
   $('btn-start').onclick = goToStart
   $('btn-play').onclick = () => void togglePlay()
   $('btn-record').onclick = toggleRecording
@@ -775,6 +1064,17 @@ function initButtons(): void {
   $('btn-undo').onclick = undo
   $('btn-redo').onclick = redo
   $('btn-clear').onclick = clearLayer
+  $('btn-zoom-in').onclick = () => timeline.zoomBy(2)
+  $('btn-zoom-out').onclick = () => timeline.zoomBy(0.5)
+  $('btn-zoom-fit').onclick = () => timeline.resetZoom()
+  $('btn-layer-add').onclick = addLayer
+  $('btn-layer-delete').onclick = deleteLayer
+
+  const solo = $<HTMLInputElement>('solo-recording')
+  solo.addEventListener('change', () => {
+    soloWhileRecording = solo.checked
+    solo.blur()
+  })
 
   const volume = $<HTMLInputElement>('volume')
   volume.addEventListener('input', () => (audio.volume = Number(volume.value)))
@@ -788,28 +1088,38 @@ function initButtons(): void {
 
 function initKeyboard(): void {
   window.addEventListener('keydown', (e) => {
-    if (exporting || loadingAudio || (e.target instanceof HTMLInputElement && e.target.type === 'text')) return
+    if (exporting || loadingAudio || exportOptions.open) return
+    if (e.target instanceof HTMLInputElement && (e.target.type === 'text' || e.target.type === 'number')) return
     const key = e.key.toLowerCase()
     if (e.ctrlKey || e.metaKey) {
       if (key === 's') void saveProject(e.shiftKey)
       else if (key === 'o') void openProject()
       else if (key === 'n') newProject()
-      else if (key === 'e') void runExport()
+      else if (key === 'e') void openExportOptions()
+      else if (key === 'c' && editMode) copySelection()
+      else if (key === 'v' && editMode) pasteClipboard()
       else if (key === 'z' && !e.shiftKey) undo()
       else if (key === 'y' || (key === 'z' && e.shiftKey)) redo()
       else return
       e.preventDefault()
       return
     }
-    if (e.repeat && key !== 'f') return
+    if (e.repeat && key !== 'f' && key !== '+' && key !== '-') return
     if (e.code === 'Space') void togglePlay()
+    else if (key === 'e') setEditMode(!editMode)
+    else if (editMode && (key === 'delete' || key === 'backspace')) editor.deleteSelected()
+    else if (editMode && key === 'escape') editor.clear()
     else if (e.code === 'KeyD') setKeyDraw(true, e)
     // T kreslení přepíná natrvalo — pro touchpady, které při držené klávese blokují pohyb kurzoru.
     else if (e.code === 'KeyT') setKeyDraw(!keyDrawHeld, e)
     else if (key === 'r') toggleRecording()
     else if (key === 'f11') toggleFullscreen()
-    else if (key === 'f') fireworkAtPointer()
+    else if (key === 'f') fireworkAtPointer(e.repeat)
     else if (key === 'home') goToStart()
+    else if (key === 'arrowup') selectNeighbourLayer(-1)
+    else if (key === 'arrowdown') selectNeighbourLayer(1)
+    else if (key === '+') timeline.zoomBy(2)
+    else if (key === '-') timeline.zoomBy(0.5)
     else return
     e.preventDefault()
   })
@@ -825,8 +1135,14 @@ function frame(): void {
 
   if (!exporting) {
     const time = audio.time
-    renderer.render([...project.layers.map((l) => ({ layer: l, time })), { layer: scratch, time: now }])
+    // Ostatní vrstvy se při nahrávání přehrávají jako reference, pokud si je uživatel neschoval.
+    const shown = recording && soloWhileRecording ? [layer()] : project.layers
+    renderer.render([...layersAt(shown, time), { layer: scratch, time: now }])
+    if (editMode) editor.draw(stageCtx, stage.width / STAGE_WIDTH, hitRadius() / 10)
     timeline.draw()
+    const zoom = timeline.zoomLevel
+    const zoomText = `${Number.isInteger(zoom) ? zoom : zoom.toFixed(1)}×`
+    if ($('zoom-label').textContent !== zoomText) $('zoom-label').textContent = zoomText
     const total = audio.hasAudio ? formatTime(audio.duration) : '–:––'
     $('time').textContent = `${formatTime(time)} / ${total}`
   }
@@ -837,6 +1153,8 @@ audio.onEnded = updateControls
 new ResizeObserver(fitStage).observe($('stage-wrap'))
 initPanel()
 initButtons()
+initEditPanel()
+initExportOptions()
 initStageInput()
 initKeyboard()
 initFullscreen()

@@ -131,6 +131,11 @@ export function smoothedPositions(stroke: Stroke, smoothing: number): { xs: numb
   return cache
 }
 
+/** Polohy bodů tak, jak se kreslí. Tah převedený na křivku je hladký sám a už se nevyhlazuje. */
+export function strokePositions(stroke: Stroke, style: LayerStyle): { xs: number[]; ys: number[] } {
+  return smoothedPositions(stroke, stroke.curve ? 0 : style.smoothing)
+}
+
 // Pracovní pole viditelného úseku — sdílená, aby se při každém snímku nealokovalo.
 const vx: number[] = []
 const vy: number[] = []
@@ -153,7 +158,7 @@ export function drawStroke(ctx: Ctx2D, stroke: Stroke, style: LayerStyle, color:
   // Jeden bod před hranou mizení navíc, aby konec stopy plynule dojel do nuly.
   const first = Math.max(lastIndexAtOrBefore(points, time - fade), 0)
   const widths = strokeWidths(stroke, style)
-  const { xs, ys } = smoothedPositions(stroke, style.smoothing)
+  const { xs, ys } = strokePositions(stroke, style)
 
   let m = 0
   for (let i = first; i <= head; i++) {

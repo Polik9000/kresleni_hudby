@@ -1,7 +1,7 @@
 import type { ExportResult, Project } from '../../shared/types'
-import { SceneRenderer } from './render/scene'
+import { layersAt, SceneRenderer } from './render/scene'
 
-/** Kolik snímků (každý ~8 MB při 1080p) smí zároveň čekat na převzetí hlavním procesem. */
+/** Kolik snímků (každý ~8 MB při 1080p, ~33 MB ve 4K) smí zároveň čekat na převzetí hlavním procesem. */
 const MAX_FRAMES_IN_FLIGHT = 3
 
 export interface ExportJob {
@@ -21,14 +21,14 @@ export type ExportOutcome = { status: 'done' } | { status: 'cancelled' } | { sta
  */
 export async function exportVideo(job: ExportJob): Promise<ExportOutcome> {
   const { project, outPath, duration } = job
-  const { width, height, fps } = project.exportSettings
+  const { width, height, fps, format } = project.exportSettings
 
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
   const renderer = new SceneRenderer(canvas)
 
-  const started = await window.kh.exportStart({ outPath, audioPath: project.audioPath, width, height, fps })
+  const started = await window.kh.exportStart({ outPath, audioPath: project.audioPath, width, height, fps, format })
   if (!started.ok) return { status: 'error', message: started.error ?? 'Export se nepodařilo spustit.' }
 
   // Předání snímku hlavnímu procesu trvá déle než jeho vykreslení, proto se nečeká na každý
@@ -48,7 +48,7 @@ export async function exportVideo(job: ExportJob): Promise<ExportOutcome> {
       return { status: 'cancelled' }
     }
     const time = i / fps
-    renderer.render(project.layers.map((layer) => ({ layer, time })))
+    renderer.render(layersAt(project.layers, time))
     const pixels = renderer.getImageData().data
     inFlight.push(window.kh.exportFrame(new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength)))
     if (inFlight.length >= MAX_FRAMES_IN_FLIGHT) await settleOldest()

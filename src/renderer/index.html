@@ -34,10 +34,47 @@
       </section>
 
       <aside class="panel">
-        <h2>Vrstva</h2>
+        <section id="edit-panel" hidden>
+          <h2>Úpravy</h2>
+          <p id="edit-info" class="muted small"></p>
+          <label class="field row" title="Čas skladby, kdy vybraná čára nebo ohňostroj začíná">
+            <span>Začátek (s)</span>
+            <input id="edit-time" type="number" step="0.01" />
+          </label>
+          <div class="group">
+            <button id="btn-copy" title="Kopírovat vybranou čáru, její úsek nebo ohňostroj (Ctrl+C)">Kopírovat</button>
+            <button id="btn-paste" title="Vložit na místo přehrávací hlavy (Ctrl+V)">Vložit</button>
+            <button id="btn-delete-item" class="danger" title="Smazat vybrané (Delete)">Smazat</button>
+          </div>
+          <ul class="help small edit-help">
+            <li><kbd>klik</kbd> na čáru nebo ohňostroj je vybere, <kbd>tažení</kbd> je přesune</li>
+            <li>tažení <kbd>uzlu</kbd> (čtvereček) mění tvar čáry, časování zůstává</li>
+            <li>tažení <kbd>táhla</kbd> (kolečko) mění zakřivení; s <kbd>Alt</kbd> jen z jedné strany</li>
+            <li><kbd>Shift</kbd> + klik na druhý uzel vybere úsek čáry ke zkopírování</li>
+            <li><kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd> vloží kopii na místo přehrávací hlavy</li>
+            <li><kbd>Delete</kbd> smaže, <kbd>Esc</kbd> zruší výběr</li>
+          </ul>
+        </section>
+
+        <h2>Vrstvy</h2>
+        <div id="layer-list" class="layer-list"></div>
+        <div class="group">
+          <button id="btn-layer-add" title="Přidat novou vrstvu">+ Nová vrstva</button>
+          <button id="btn-layer-delete" class="danger" title="Smazat vybranou vrstvu (jde vrátit přes Zpět)">Smazat</button>
+        </div>
+        <label class="check small" title="Jinak se už nahrané vrstvy při nahrávání přehrávají jako reference">
+          <input id="solo-recording" type="checkbox" />
+          <span>Při nahrávání skrýt ostatní vrstvy</span>
+        </label>
+
+        <h2>Vybraná vrstva</h2>
         <label class="field">
           <span>Název</span>
           <input id="layer-name" type="text" maxlength="60" />
+        </label>
+        <label class="field row" title="Posune celou vrstvu v čase; záporná hodnota = dřív. Jde i tažením pruhu vrstvy na ose se Shiftem.">
+          <span>Posun v čase (s)</span>
+          <input id="layer-offset" type="number" step="0.05" />
         </label>
 
         <h2>Čára</h2>
@@ -81,7 +118,7 @@
 
         <h2>Záznam</h2>
         <div class="group">
-          <button id="btn-undo" title="Zpět (Ctrl+Z)">Zpět</button>
+          <button id="btn-undo" title="Zpět (Ctrl+Z) — nahraný průchod, vymazání, přidání nebo smazání vrstvy">Zpět</button>
           <button id="btn-redo" title="Znovu (Ctrl+Y)">Znovu</button>
           <button id="btn-clear" class="danger" title="Smazat vše nahrané v této vrstvě">Vymazat</button>
         </div>
@@ -97,6 +134,11 @@
           <li><kbd>R</kbd> nahrávání (po odpočtu 3 s)</li>
           <li><kbd>F11</kbd> plátno na celou obrazovku</li>
           <li><kbd>Home</kbd> na začátek</li>
+          <li><kbd>E</kbd> režim úprav nahraných čar a ohňostrojů</li>
+          <li><kbd>↑</kbd> / <kbd>↓</kbd> předchozí / další vrstva</li>
+          <li><kbd>Shift</kbd> + tažení pruhu na ose posune vrstvu v čase</li>
+          <li><kbd>kolečko</kbd> nad osou / <kbd>+</kbd> <kbd>−</kbd> přiblíží osu, <kbd>Shift</kbd> + kolečko ji posune</li>
+          <li>držení <kbd>F</kbd> sype proud menších ohňostrojů</li>
         </ul>
         <p class="muted small">Mimo nahrávání se kreslí jen nanečisto — nic se neukládá.</p>
       </aside>
@@ -107,8 +149,16 @@
         <button id="btn-start" title="Na začátek (Home)">⏮</button>
         <button id="btn-play" title="Přehrát / pozastavit (mezerník)">▶</button>
         <button id="btn-record" class="record" title="Nahrávat (R)">● Nahrát</button>
+        <button id="btn-edit" title="Upravovat nahrané čáry a ohňostroje vybrané vrstvy (E)">✎ Úpravy</button>
         <span id="time" class="time">0:00.0 / 0:00.0</span>
         <div class="spacer"></div>
+        <div class="group" title="Přiblížení časové osy: kolečko myši nad osou (Shift + kolečko posouvá), klávesy + a −">
+          <span class="muted small">Osa</span>
+          <button id="btn-zoom-out">−</button>
+          <span id="zoom-label" class="zoom-label">1×</span>
+          <button id="btn-zoom-in">+</button>
+          <button id="btn-zoom-fit">Celá</button>
+        </div>
         <button id="btn-fullscreen" title="Plátno na celou obrazovku (F11)">⛶ Celá obrazovka</button>
         <label class="volume" title="Hlasitost">
           <span class="muted small">Hlasitost</span>
@@ -117,6 +167,27 @@
       </div>
       <canvas id="timeline"></canvas>
     </footer>
+
+    <dialog id="export-options">
+      <h2>Export videa</h2>
+      <label class="field">
+        <span>Rozlišení</span>
+        <select id="export-resolution"></select>
+      </label>
+      <label class="field">
+        <span>Snímková frekvence</span>
+        <select id="export-fps"></select>
+      </label>
+      <label class="field">
+        <span>Formát</span>
+        <select id="export-format"></select>
+      </label>
+      <p id="export-hidden-note" class="muted small"></p>
+      <div class="group end">
+        <button id="export-options-cancel">Zrušit</button>
+        <button id="export-go" class="primary">Exportovat…</button>
+      </div>
+    </dialog>
 
     <dialog id="export-dialog">
       <h2>Export videa</h2>

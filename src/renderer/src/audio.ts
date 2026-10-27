@@ -59,21 +59,24 @@ export class AudioEngine {
   }
 
   /** Špičky signálu pro kreslení waveformu: pro každý sloupec [min, max]. */
-  peaks(columns: number): Float32Array | null {
+  /** Obrys waveformu (min, max na sloupec) pro úsek skladby `from`–`to` v sekundách. */
+  peaks(columns: number, from = 0, to = this.duration): Float32Array | null {
     if (!this.buffer) return null
     const out = new Float32Array(columns * 2)
     const channels: Float32Array[] = []
     for (let c = 0; c < this.buffer.numberOfChannels; c++) channels.push(this.buffer.getChannelData(c))
-    const samplesPerColumn = this.buffer.length / columns
+    const firstSample = from * this.buffer.sampleRate
+    const samplesPerColumn = ((to - from) * this.buffer.sampleRate) / columns
     // Nemusí se číst každý vzorek — pro obrys waveformu stačí řidší krok.
     const step = Math.max(1, Math.floor(samplesPerColumn / 256))
     for (let col = 0; col < columns; col++) {
-      const from = Math.floor(col * samplesPerColumn)
-      const to = Math.min(Math.floor((col + 1) * samplesPerColumn), this.buffer.length)
+      const begin = Math.max(Math.floor(firstSample + col * samplesPerColumn), 0)
+      // Při velkém přiblížení připadá na sloupec méně než jeden vzorek — vždy se přečte aspoň jeden.
+      const end = Math.min(Math.max(Math.floor(firstSample + (col + 1) * samplesPerColumn), begin + 1), this.buffer.length)
       let min = 0
       let max = 0
       for (const data of channels) {
-        for (let i = from; i < to; i += step) {
+        for (let i = begin; i < end; i += step) {
           const v = data[i]
           if (v < min) min = v
           else if (v > max) max = v

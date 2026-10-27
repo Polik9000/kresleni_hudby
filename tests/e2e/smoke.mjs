@@ -1,5 +1,6 @@
-// End-to-end test celé pipeline F1 nad skutečnou aplikací:
-// import audia → nahrání tahu a ohňostrojů → uložení → export MP4 → znovunačtení projektu.
+// End-to-end test celé pipeline nad skutečnou aplikací:
+// import audia → nahrání tahu a ohňostrojů → uložení → druhá vrstva (overdub, posun, skrytí, smazání)
+// → export MP4 a WebM → znovunačtení projektu.
 // Spuštění: npm run test:e2e
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -61,7 +62,8 @@ const waitFor = async (condition, message) => {
   }
   assert.fail(message)
 }
-const savedLayer = () => JSON.parse(readFileSync(paths.project, 'utf8')).layers[0]
+const savedProject = () => JSON.parse(readFileSync(paths.project, 'utf8'))
+const savedLayer = () => savedProject().layers[0]
 
 let recoveryJson = null
 let app = await launch()
@@ -75,7 +77,9 @@ try {
     })
     dialog.showSaveDialog = async (_win, options) => ({
       canceled: false,
-      filePath: options.title === 'Exportovat video' ? p.video : p.project
+      // Přípona videa podle formátu zvoleného v dialogu exportu.
+      filePath:
+        options.title === 'Exportovat video' ? p.video.replace(/mp4$/, options.filters[0].extensions[0]) : p.project
     })
   }, paths)
 
@@ -191,6 +195,136 @@ try {
   )
   assert.match(await page.textContent('#save-status'), /^Automaticky uloženo/)
 
+  // --- Režim úprav: tvar čáry přes uzel křivky, přesun, kopie na jiné místo v čase, smazání ---
+  const originalStrokes = savedLayer().strokes
+  const editInfo = () => page.textContent('#edit-info')
+  const axis = await page.locator('#timeline').boundingBox()
+  await page.mouse.click(axis.x + (axis.width * 3) / AUDIO_SECONDS, axis.y + axis.height / 2)
+  await page.keyboard.press('e')
+  assert.equal(await page.isVisible('#edit-panel'), true)
+  assert.match(await editInfo(), /Nic není vybráno/)
+  // Bod vlnovky při f = 0,75; samotný klik čáru jen vybere, nic nezmění.
+  await page.mouse.click(...at(0.55, 0.5))
+  assert.match(await editInfo(), /Vybrána čára \(\d+ uzlů\)/)
+  await page.screenshot({ path: join(out, 'edit.png') })
+  // První uzel leží na začátku tahu; tažením se čára převede na křivku a změní tvar, časy zůstanou.
+  await page.mouse.move(...at(0.1, 0.5))
+  await page.mouse.down()
+  await page.mouse.move(...at(0.1, 0.4), { steps: 5 })
+  await page.mouse.up()
+  assert.match(await editInfo(), /Vybrán uzel 1 z/)
+  await waitFor(() => savedLayer().curves?.[0] !== undefined, 'úprava uzlu se neuložila jako křivka')
+  const reshaped = savedLayer().strokes[0]
+  assert.ok(Math.abs(reshaped[1] - 0.4 * 1080) < 6, `začátek čáry je v y = ${reshaped[1]}`)
+  assert.deepEqual(reshaped.filter((_, i) => i % 3 === 2), strokeTimes, 'úprava tvaru nemění časy bodů')
+  assert.equal(savedLayer().curves[0].params.length, strokeTimes.length)
+  // Tažení čáry mimo uzel ji přesune celou (bez výběru nejsou uzly aktivní, takže se netrefí do žádného).
+  await page.keyboard.press('Escape')
+  assert.match(await editInfo(), /Nic není vybráno/)
+  await page.mouse.move(...at(0.55, 0.5))
+  await page.mouse.down()
+  await page.mouse.move(...at(0.6, 0.5), { steps: 5 })
+  await page.mouse.up()
+  await waitFor(() => Math.abs(savedLayer().strokes[0][0] - reshaped[0] - 0.05 * 1920) < 4, 'čára se nepřesunula')
+  // Kopie se vloží na místo přehrávací hlavy a jde zase smazat.
+  await page.keyboard.press('Control+c')
+  await page.keyboard.press('Home')
+  await page.keyboard.press('Control+v')
+  assert.match(await page.textContent('#layer-stats'), /3 tahů, 3 ohňostrojů/)
+  await waitFor(() => savedLayer().strokes.length === 3 && savedLayer().strokes[2][2] === 0, 'kopie nezačíná v čase 0')
+  assert.equal(await page.inputValue('#edit-time'), '0.00')
+  await page.keyboard.press('Delete')
+  assert.match(await page.textContent('#layer-stats'), /2 tahů, 3 ohňostrojů/)
+  // Čtyři kroky zpět (smazání, vložení, přesun, tvar) vrátí původní nahrávku.
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Control+z')
+  await waitFor(
+    () => savedLayer().curves === undefined && JSON.stringify(savedLayer().strokes) === JSON.stringify(originalStrokes),
+    'kroky Zpět nevrátily původní čáry'
+  )
+  await page.keyboard.press('e')
+  assert.equal(await page.isVisible('#edit-panel'), false)
+
+  // --- Druhá vrstva: overdub přes první, ta zůstává beze změny ---
+  const stats = () => page.textContent('#layer-stats')
+  await page.click('#btn-layer-add')
+  assert.equal(await page.locator('.layer-row').count(), 2)
+  assert.equal(await page.inputValue('#layer-name'), 'Vrstva 2')
+  assert.notEqual(await page.inputValue('#line-color'), '#ff3366', 'nová vrstva má jinou barvu čáry')
+  assert.equal(await page.inputValue('#width'), '24', 'nová vrstva přebírá ostatní nastavení')
+  assert.match(await stats(), /0 tahů, 0 ohňostrojů/)
+  await page.keyboard.press('Home')
+  await page.click('#btn-record')
+  await page.waitForFunction(() => document.body.classList.contains('recording'))
+  await page.waitForTimeout(300)
+  await page.mouse.move(...at(0.2, 0.2))
+  await page.mouse.down()
+  await page.mouse.move(...at(0.6, 0.4), { steps: 15 })
+  await page.mouse.up()
+  await page.screenshot({ path: join(out, 'overdub.png') })
+  await page.keyboard.press('r')
+  assert.match(await stats(), /1 tahů, 0 ohňostrojů/)
+  await waitFor(() => {
+    const { layers } = savedProject()
+    return layers.length === 2 && layers[1].strokes.length === 1 && layers[0].strokes.length === 2
+  }, 'druhá vrstva se neuložila vedle první')
+  const overdubStart = savedProject().layers[1].strokes[0][2]
+
+  // Posun vrstvy v čase: číslem v panelu a tažením jejího pruhu na ose se Shiftem. Zaznamenané časy se nemění.
+  await page.fill('#layer-offset', '1.5')
+  await page.keyboard.press('Enter')
+  await waitFor(() => savedProject().layers[1].offset === 1.5, 'posun vrstvy se neuložil')
+  assert.equal(savedProject().layers[1].strokes[0][2], overdubStart)
+  const lanes = await page.locator('#timeline').boundingBox()
+  assert.equal(Math.round(lanes.height), 54 + 2 * 14, 'osa má pruh pro každou vrstvu')
+  const laneY = lanes.y + 54 + 14 + 7
+  const timeBefore = await page.textContent('#time')
+  await page.keyboard.down('Shift')
+  await page.mouse.move(lanes.x + lanes.width * 0.5, laneY)
+  await page.mouse.down()
+  await page.mouse.move(lanes.x + lanes.width * 0.625, laneY, { steps: 5 })
+  await page.mouse.up()
+  await page.keyboard.up('Shift')
+  const dragged = Number(await page.inputValue('#layer-offset'))
+  assert.ok(Math.abs(dragged - (1.5 + AUDIO_SECONDS / 8)) < 0.03, `posun tažením je ${dragged} s`)
+  assert.equal(await page.textContent('#time'), timeBefore, 'tažení vrstvy nepřetáčí')
+
+  // Přiblížená osa: stejné tažení posune vrstvu o polovinu méně; "Celá" vrátí celou skladbu.
+  await page.click('#btn-zoom-in')
+  assert.equal(await page.textContent('#zoom-label'), '2×')
+  await page.keyboard.down('Shift')
+  await page.mouse.move(lanes.x + lanes.width * 0.5, laneY)
+  await page.mouse.down()
+  await page.mouse.move(lanes.x + lanes.width * 0.625, laneY, { steps: 5 })
+  await page.mouse.up()
+  await page.keyboard.up('Shift')
+  const zoomed = Number(await page.inputValue('#layer-offset'))
+  assert.ok(Math.abs(zoomed - dragged - AUDIO_SECONDS / 16) < 0.03, `posun při přiblížení je ${zoomed - dragged} s`)
+  await page.screenshot({ path: join(out, 'zoomed.png') })
+  // Kolečko nad osou přibližuje dál (nejvýš na 2 s skladby přes celou osu).
+  await page.mouse.wheel(0, -2000)
+  await page.waitForFunction((s) => document.getElementById('zoom-label').textContent === `${s / 2}×`, AUDIO_SECONDS)
+  await page.click('#btn-zoom-fit')
+  await page.waitForFunction(() => document.getElementById('zoom-label').textContent === '1×')
+
+  // Skrytí vrstvy, přepínání vrstev šipkami, smazání a návrat přes Zpět.
+  await page.click('.layer-row:first-child .eye')
+  await waitFor(() => savedProject().layers[0].visible === false, 'skrytí vrstvy se neuložilo')
+  await page.click('.layer-row:first-child .eye')
+  await page.keyboard.press('ArrowUp')
+  assert.match(await stats(), /2 tahů, 3 ohňostrojů/)
+  assert.equal(await page.inputValue('#line-color'), '#ff3366')
+  await page.keyboard.press('ArrowDown')
+  assert.match(await stats(), /1 tahů, 0 ohňostrojů/)
+  await page.click('#btn-layer-delete')
+  assert.equal(await page.locator('.layer-row').count(), 1)
+  assert.match(await stats(), /2 tahů, 3 ohňostrojů/)
+  await page.keyboard.press('Control+z')
+  assert.equal(await page.locator('.layer-row').count(), 2)
+  await waitFor(() => {
+    const { layers } = savedProject()
+    return layers.length === 2 && layers[0].visible && layers[1].strokes.length === 1
+  }, 'smazaná vrstva se krokem Zpět nevrátila')
+
   // --- Celá obrazovka: plátno vyplní maximum plochy a drží poměr stran 16:9 ---
   await page.keyboard.press('F11')
   await page.waitForFunction(() => document.body.classList.contains('fullscreen'))
@@ -226,6 +360,8 @@ try {
   // --- Export ---
   const exportStarted = Date.now()
   await page.click('#btn-export')
+  assert.equal(await page.inputValue('#export-resolution'), '1920x1080')
+  await page.click('#export-go')
   await page.waitForFunction(() => document.getElementById('export-status').textContent.startsWith('Hotovo'), null, {
     timeout: 120000
   })
@@ -244,6 +380,26 @@ try {
   spawnSync(ffmpegPath, ['-y', '-loglevel', 'error', '-ss', frameTime, '-i', paths.video, '-frames:v', '1', paths.frame])
   assert.ok(existsSync(paths.frame), 'z videa jde vytáhnout snímek')
 
+  // --- Export v jiném rozlišení, snímkové frekvenci a formátu; volba se uloží do projektu ---
+  await page.keyboard.press('Control+e')
+  await page.selectOption('#export-resolution', '1280x720')
+  await page.selectOption('#export-fps', '25')
+  await page.selectOption('#export-format', 'webm-vp9')
+  await page.click('#export-go')
+  await page.waitForFunction(
+    () => /^Hotovo.*\.webm$/.test(document.getElementById('export-status').textContent),
+    null,
+    { timeout: 120000 }
+  )
+  await page.click('#export-cancel')
+  const webm = spawnSync(ffmpegPath, ['-hide_banner', '-i', paths.video.replace(/mp4$/, 'webm')], { encoding: 'utf8' }).stderr
+  assert.match(webm, /Video: vp9.*1280x720.*25 fps/s)
+  assert.match(webm, /Audio: opus/)
+  await waitFor(() => savedProject().export.format === 'webm-vp9', 'nastavení exportu se neuložilo do projektu')
+  // Soubor je zapsaný o chvíli dřív, než se aplikace dozví, že uložení doběhlo; do té doby by se
+  // "Nový projekt" ptal na neuložené změny.
+  await page.waitForTimeout(500)
+
   // --- Nový projekt a znovunačtení ---
   await page.keyboard.press('Control+n')
   assert.match(await page.textContent('#layer-stats'), /0 tahů, 0 ohňostrojů/)
@@ -253,6 +409,9 @@ try {
   assert.match(await page.textContent('#layer-stats'), /2 tahů, 3 ohňostrojů/)
   assert.equal(await page.inputValue('#line-color'), '#ff3366')
   assert.equal(await page.inputValue('#width'), '24')
+  assert.equal(await page.locator('.layer-row').count(), 2)
+  await page.click('.layer-row:last-child')
+  assert.equal(await page.inputValue('#layer-offset'), String(zoomed))
 
   // Náhled v čase, kdy je tah vidět.
   await page.evaluate(() => new Promise((r) => setTimeout(r, 100)))
@@ -268,7 +427,8 @@ try {
   const total = Math.ceil(AUDIO_SECONDS * 30)
   console.log(`OK — export ${total} snímků za ${exportSeconds.toFixed(1)} s (${(total / exportSeconds).toFixed(0)} fps)`)
 } finally {
-  await app.close()
+  // Po selhání uprostřed testu má projekt neuložené změny a obyčejné zavření by čekalo na nativní dialog.
+  await app.evaluate(({ app: electronApp }) => electronApp.exit(0)).catch(() => {})
 }
 
 // --- Obnovení po pádu: při startu se nabídne záloha neuloženého projektu ---

@@ -13,6 +13,10 @@ export interface LayerAtTime {
   time: number
 }
 
+/** Vrstvy v čase skladby `time` — každá ve svém vlastním čase podle posunu vrstvy. */
+export const layersAt = (layers: Layer[], time: number): LayerAtTime[] =>
+  layers.map((layer) => ({ layer, time: time - layer.offset }))
+
 /**
  * Vykresluje scénu jako čistou funkci (vrstvy, čas). Stejná třída obsluhuje živý náhled
  * i export — liší se jen cílovým canvasem, takže export vypadá přesně jako náhled.
