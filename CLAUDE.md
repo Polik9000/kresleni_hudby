@@ -76,8 +76,9 @@ Neověřeno na skutečném hardwaru (jen simulovanou myší v testu): zámek kur
 a s perem/tabletem, kreslení `D`/`T` na skutečném touchpadu, překryv načítání u dlouhé skladby.
 Režim úprav zkoušel v aplikaci jen E2E test na jedné vlnovce (úprava uzlu, přesun, kopie, smazání,
 Zpět, zúžení a rozšíření časového okna); ostatní operace (táhla, výběr úseku, ohňostroje, posun v čase) pokrývá `tests/editor.test.ts`.
-Export 4K a formáty H.265/ProRes z aplikace nikdo nespustil (argumenty ffmpeg ověřeny jen ručně
-na krátkém klipu); E2E test exportuje 1080p H.264 a 720p WebM.
+Export 4K a formáty H.265/ProRes z aplikace nikdo nespustil; `tests/exporter.test.ts` ověřuje
+výstup všech formátů v 720p a 4K (kodek, rozlišení, fps, audio, délka), ne přehrání v přehrávači.
+E2E test exportuje 1080p H.264 a 720p WebM.
 
 ## Architektura
 

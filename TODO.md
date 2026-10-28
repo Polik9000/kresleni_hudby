@@ -112,7 +112,7 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
   Větev `faze-1-mvp` neměla žádné commity navíc oproti `main`. Obě větve smazány lokálně
   i na GitHubu. Jen dokumentace, testy se nepouštěly.
 
-### 5. [ ] Ověření exportních formátů a rozlišení — M — [PARALELNĚ]
+### 5. [x] Ověření exportních formátů a rozlišení — M — [PARALELNĚ]
 - **Cíl:** formáty H.265, ProRes a 4K nikdo z aplikace nespustil. Napsat test, který přes
   `src/main/exporter.ts` (stejné argumenty ffmpeg jako aplikace) zakóduje pár syntetických
   snímků + krátké audio v každém formátu z `EXPORT_FORMATS` a v rozlišení 720p i 4K,
@@ -121,6 +121,10 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
   + příkaz v `package.json`, pokud vitest neumí běžet s Electronem), případně oprava `exporter.ts`.
 - **Hotovo, když:** test projde pro všechny kombinace formát × {720p, 4K}; nalezené chyby
   v argumentech ffmpeg jsou opravené.
+- **Poznámka (28. 10. 2026):** `tests/exporter.test.ts` (vitest, běží i bez Electronu — `exporter.ts`
+  Electron neimportuje) zakóduje 10 snímků + 0,4 s tónu ve všech 4 formátech × 720p/4K a přes
+  `ffmpeg -i` ověří kodek, rozlišení, fps, audio stopu a délku. Všech 8 kombinací prošlo, v argumentech
+  ffmpeg se chyba nenašla. Ověřuje jen technickou správnost souborů, ne přehrání (viz Blokované).
 
 ### 6. [ ] Odolnost načítání projektu — S — [PARALELNĚ]
 - **Cíl:** poškozený nebo ručně upravený `.khproj` nesmí aplikaci shodit ani tiše ztratit data.
