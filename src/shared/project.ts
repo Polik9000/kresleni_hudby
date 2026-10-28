@@ -125,28 +125,60 @@ export function serializeProject(project: Project): string {
 }
 
 export function parseProject(json: string): Project {
-  const file = JSON.parse(json) as Partial<FileProject>
-  if (file.format !== PROJECT_FORMAT) throw new Error('Soubor není projekt Kreslení hudby.')
+  const file = JSON.parse(json) as Partial<FileProject> | null
+  if (!isRecord(file) || file.format !== PROJECT_FORMAT) throw new Error('Soubor není projekt Kreslení hudby.')
   if (typeof file.version !== 'number' || file.version > PROJECT_VERSION) {
     throw new Error('Projekt byl vytvořen novější verzí aplikace.')
   }
-  const layers: Layer[] = (file.layers ?? []).map((layer) => ({
-    id: String(layer.id),
-    name: String(layer.name),
-    visible: layer.visible !== false,
-    offset: typeof layer.offset === 'number' && Number.isFinite(layer.offset) ? layer.offset : 0,
-    style: { ...DEFAULT_STYLE, ...layer.style },
-    strokes: (layer.strokes ?? [])
-      .map((flat, i) => unpackStroke(flat, layer.curves?.[i]))
-      .filter((s) => s.points.length > 0),
-    fireworks: (layer.fireworks ?? []).map(unpackFirework)
-  }))
+  // Poškozená vrstva nebo položka se přeskočí, aby se zbytek projektu dal načíst.
+  const rawLayers = Array.isArray(file.layers) ? file.layers.filter(isRecord) : []
+  const usedIds = new Set<string>()
+  const layers: Layer[] = rawLayers.map((layer, index) => {
+    let id = typeof layer.id === 'string' && layer.id ? layer.id : Math.random().toString(36).slice(2, 10)
+    while (usedIds.has(id)) id += '_'
+    usedIds.add(id)
+    const strokes = Array.isArray(layer.strokes) ? layer.strokes : []
+    const curves = isRecord(layer.curves) ? layer.curves : {}
+    return {
+      id,
+      name: typeof layer.name === 'string' ? layer.name : `Vrstva ${index + 1}`,
+      visible: layer.visible !== false,
+      offset: typeof layer.offset === 'number' && Number.isFinite(layer.offset) ? layer.offset : 0,
+      style: sanitizeStyle(layer.style),
+      strokes: strokes
+        .map((flat, i) => unpackStroke(flat, curves[i]))
+        .filter((s) => s.points.length > 0),
+      fireworks: (Array.isArray(layer.fireworks) ? layer.fireworks : [])
+        .map(unpackFirework)
+        .filter((f): f is FireworkEvent => f !== null)
+    }
+  })
   if (layers.length === 0) layers.push(createLayer('Vrstva 1'))
   return {
-    audioPath: file.audio?.path ?? null,
+    audioPath: typeof file.audio?.path === 'string' ? file.audio.path : null,
     layers,
-    exportSettings: sanitizeExport(file.export)
+    exportSettings: sanitizeExport(isRecord(file.export) ? file.export : undefined)
   }
+}
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Z uloženého stylu se vezmou jen hodnoty správného typu, zbytek doplní výchozí. */
+function sanitizeStyle(saved: unknown): LayerStyle {
+  const style: LayerStyle = { ...DEFAULT_STYLE }
+  if (!isRecord(saved)) return style
+  const target = style as unknown as Record<string, unknown>
+  for (const key of Object.keys(DEFAULT_STYLE) as (keyof LayerStyle)[]) {
+    const value = saved[key]
+    const fallback = DEFAULT_STYLE[key]
+    if (typeof fallback === 'number' ? typeof value === 'number' && Number.isFinite(value) : typeof value === 'string') {
+      target[key] = value
+    }
+  }
+  if (style.widthMode !== 'fixed' && style.widthMode !== 'dynamic') style.widthMode = DEFAULT_STYLE.widthMode
+  return style
 }
 
 /** Neznámé hodnoty (ručně upravený soubor, formát z jiné verze) se nahradí výchozími. */
@@ -173,9 +205,16 @@ function packCurves(strokes: Stroke[]): Record<string, FileCurve> | undefined {
   return Object.keys(curves).length > 0 ? curves : undefined
 }
 
-function unpackStroke(flat: number[], curve?: FileCurve): Stroke {
+function unpackStroke(flat: unknown, curve?: FileCurve): Stroke {
   const points: StrokePoint[] = []
-  for (let i = 0; i + 2 < flat.length; i += 3) points.push({ x: flat[i], y: flat[i + 1], t: flat[i + 2] })
+  if (Array.isArray(flat)) {
+    // Neúplná trojice na konci se zahodí, body s nečíselnou hodnotou také.
+    for (let i = 0; i + 2 < flat.length; i += 3) {
+      const [x, y, t] = [flat[i], flat[i + 1], flat[i + 2]]
+      if ([x, y, t].every((v) => typeof v === 'number' && Number.isFinite(v))) points.push({ x, y, t })
+    }
+  }
+  // Křivka sedí na původní počet bodů; po vyřazení bodů ji unpackCurve zahodí.
   const unpacked = points.length > 0 ? unpackCurve(curve, points.length) : null
   return unpacked ? { points, curve: unpacked } : { points }
 }
@@ -193,8 +232,16 @@ function unpackCurve(curve: FileCurve | undefined, pointCount: number): StrokeCu
   return { nodes, params: params.slice() }
 }
 
-function unpackFirework(flat: number[]): FireworkEvent {
-  const fw: FireworkEvent = { x: flat[0], y: flat[1], t: flat[2], seed: flat[3] >>> 0 }
+function unpackFirework(flat: unknown): FireworkEvent | null {
+  if (!Array.isArray(flat) || ![flat[0], flat[1], flat[2]].every((v) => typeof v === 'number' && Number.isFinite(v))) {
+    return null
+  }
+  // Chybějící seed nahradí hodnota odvozená z polohy a času, aby ohňostroj měl stálý vzhled.
+  const seed =
+    typeof flat[3] === 'number' && Number.isFinite(flat[3])
+      ? flat[3] >>> 0
+      : Math.imul(Math.round(flat[0]) * 1921 + Math.round(flat[1]), 2654435761) ^ Math.round(flat[2] * 1000)
+  const fw: FireworkEvent = { x: flat[0], y: flat[1], t: flat[2], seed: seed >>> 0 }
   if (typeof flat[4] === 'number' && flat[4] < 1) fw.density = Math.max(flat[4], 0)
   return fw
 }

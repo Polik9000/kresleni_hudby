@@ -25,6 +25,8 @@ Postup u každého úkolu:
    co se nepodařilo, co je potřeba ověřit ručně.
 6. Commit do `main` (česky, první řádek „Úkol N: …“, attribution řádek na konci) a `git push`.
    Commituj jen soubory, které úkol změnil; `tests/e2e/output` se necommituje.
+7. Na konci odpovědi vypiš další úkol (první neodškrtnutý a neblokovaný) a **doporučený model**
+   (řádek `Model:` u úkolu v `TODO.md`).
 
 Když se něco nedaří:
 - Test selže a příčina není v tvé změně → zkus ho jednou znovu; když selže znovu, nepřepisuj

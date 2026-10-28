@@ -126,7 +126,8 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
   `ffmpeg -i` ověří kodek, rozlišení, fps, audio stopu a délku. Všech 8 kombinací prošlo, v argumentech
   ffmpeg se chyba nenašla. Ověřuje jen technickou správnost souborů, ne přehrání (viz Blokované).
 
-### 6. [ ] Odolnost načítání projektu — S — [PARALELNĚ]
+### 6. [x] Odolnost načítání projektu — S — [PARALELNĚ]
+- **Model:** Sonnet — krátké, jasně vymezené; defenzivní parsování + testy.
 - **Cíl:** poškozený nebo ručně upravený `.khproj` nesmí aplikaci shodit ani tiše ztratit data.
   Ověřit `deserializeProject` na: neplatném JSON, chybějících polích vrstev, `NaN`/textu
   v bodech, prázdném tahu, liché délce plochého pole bodů, chybějícím `seed` ohňostroje.
@@ -134,8 +135,14 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
   když nejde rozumně načíst nic.
 - **Soubory:** `src/shared/project.ts`, `tests/core.test.ts` (nebo nový `tests/project.test.ts`).
 - **Hotovo, když:** každý případ výše má test.
+- **Poznámka (28. 10. 2026):** `parseProject` (funkce se nejmenuje `deserializeProject`) přeskočí
+  poškozené vrstvy, body (nečíselné hodnoty), ohňostroje a nahradí chybějící pole výchozími
+  (jméno, id – shodná id se rozliší, styl po položkách podle typu, seed ohňostroje odvozený z polohy a času).
+  Odmítne jen neplatný JSON, cizí formát a novější verzi. Testy v novém `tests/project.test.ts` (11 případů);
+  typecheck, testy i E2E prošly.
 
 ### 7. [ ] Přidání a smazání uzlu křivky — M
+- **Model:** Sonnet — matematika křivek je přesně zadaná (de Casteljau).
 - **Cíl:** v režimu úprav dvojklik na vybranou čáru přidá uzel v tom místě (bez změny tvaru
   — rozdělení Bézierova oblouku de Casteljauem); `Delete` s vybraným uzlem smaže uzel
   (sousední oblouky se spojí a proloží), bez vybraného uzlu maže celý prvek jako dnes.
@@ -146,6 +153,7 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
   neudělá (čára se maže až bez vybraného uzlu); chování je popsané v README.
 
 ### 8. [ ] Rozdělení čáry — S
+- **Model:** Sonnet — malá změna nad hotovým výřezem mezi uzly.
 - **Cíl:** v režimu úprav rozdělí klávesa (navrženo `X`, ověřit, že není obsazená)
   vybranou čáru ve vybraném uzlu na dva samostatné tahy (využít výřez mezi uzly z `curve.ts`).
   Jde vrátit přes Zpět.
@@ -154,6 +162,7 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
   (dělicí bod je v obou); E2E rozdělí vlnovku a ověří počet tahů.
 
 ### 9. [ ] Výběr víc prvků — L
+- **Model:** Opus — velká změna editoru, hodně souvisejících stavů (výběr, Zpět, okno).
 - **Cíl:** v režimu úprav `Ctrl` + klik přidá/odebere prvek z výběru, tažení obdélníku
   na prázdném místě vybere prvky (jen ty viditelné v časovém okně z úkolu 3). S výběrem víc
   prvků jde: přesun tažením, Delete, Ctrl+C/Ctrl+V (relativní časy zachovat, vloží se
@@ -165,6 +174,7 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
 - **Závisí na:** úkolu 3 (časové okno).
 
 ### 10. [ ] Vyhlazení přepínané klávesou `S` — L
+- **Model:** Opus — změna formátu, vyhlazení po úsecích, spojitost na hranicích.
 - **Cíl (odložené přání uživatele):** ve vrstvě nový posuvník „Vyhlazení při držení S“
   (výchozí 0 %). Úsek tahu nakreslený při drženém `S` se vyhladí touto hodnotou, zbytek
   základním vyhlazením vrstvy. Nová vrstva má základ 5 % (dnes 50 %); existující projekty
@@ -180,6 +190,7 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
   uložení/načtení zachová úseky, soubor verze 3 se načte; E2E nakreslí tah s drženým `S`.
 
 ### 11. [ ] Jemnější kroky posuvníků — S
+- **Model:** Haiku — mechanická změna kroků posuvníků a formátování.
 - **Cíl (odložené přání uživatele):** vyhlazení po 1 % (dnes 5 %), doba mizení po 0,1 s
   (dnes 0,5 s). Zobrazená hodnota u posuvníku tomu odpovídá. Platí i pro nový posuvník
   z úkolu 10, pokud už existuje.
@@ -188,6 +199,7 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
   projektu hodnoty sedí.
 
 ### 12. [ ] Hudba během odpočtu — M
+- **Model:** Sonnet — časování audia a odpočtu, střední riziko.
 - **Cíl:** během 3 s odpočtu před nahráváním hraje hudba od místa 3 s před startem nahrávání
   (předehra), aby šlo chytit tempo. Kreslit se ukládá až od startu. Když je start blíž než
   3 s od začátku skladby, předehra začne od 0 s (odpočet trvá dál 3 s, hudba začne později).
@@ -198,6 +210,7 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
   nemá čas menší než start nahrávání a zrušený odpočet vrátí hlavu zpět.
 
 ### 13. [ ] Výkon u dlouhé skladby — M
+- **Model:** Sonnet — měření a cílená optimalizace.
 - **Cíl:** zjistit, jak se náhled, režim úprav a export chovají u 10minutové skladby
   s ~2000 tahy a ~1000 ohňostroji ve 3 vrstvách (vygenerovaný projekt). Pokud vykreslení
   snímku náhledu trvá > 16 ms nebo export klesne pod 10 snímků/s, optimalizovat (např.
@@ -207,6 +220,7 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
   (porovnat pixely snímků před a po optimalizaci).
 
 ### 14. [ ] Rozdělení `main.ts` do modulů — L
+- **Model:** Opus — velký refaktoring bez změny chování, hlídat souvislosti.
 - **Cíl:** `main.ts` má ~1200 řádků. Vyčlenit samostatné celky (panel vrstev, vstup a klávesy,
   nahrávání a odpočet, ukládání/autosave) do modulů po vzoru `editor.ts` (rozhraní hostitele).
   Čistý refaktoring — žádná změna chování.
@@ -224,6 +238,7 @@ Nové klávesy ověř proti obsluze v `main.ts` (dnes obsazené: D, T, F, R, E, 
 šipky, +, −, F11; plánované: S z úkolu 10, X z úkolu 8).
 
 ### 15. [ ] Prstenec, který smaže obrazovku — L
+- **Model:** Opus — průřezová změna vykreslení napříč vrstvami a offsety.
 - **Cíl:** na místech, kde v hudbě přijde „bum“ a pak ticho, vyčistit plátno. Klávesa `W`
   vypustí prstenec z místa kurzoru, `Shift+W` ze středu plátna. Prstenec (barva ohňostroje
   vrstvy, se září) se rozepne přes celou obrazovku (k nejvzdálenějšímu rohu asi za 0,8 s)
@@ -244,6 +259,7 @@ Nové klávesy ověř proti obsluze v `main.ts` (dnes obsazené: D, T, F, R, E, 
   průchodu prstence je vidět jen druhý tah.
 
 ### 16. [ ] Jiskry ze špičky čáry („světelný meč“) — M
+- **Model:** Sonnet — samostatná čistá funkce + panel.
 - **Cíl:** z místa, kde se čára právě kreslí, odlétají jiskry jako při řezání kovu:
   vyletí do stran, padají gravitací a do ~0,6 s zhasnou. Čím rychlejší pohyb, tím víc jisker.
   Ve vzhledu vrstvy přepínač „Jiskry“ a posuvník množství (výchozí vypnuto, aby se staré
@@ -259,6 +275,7 @@ Nové klávesy ověř proti obsluze v `main.ts` (dnes obsazené: D, T, F, R, E, 
   E2E: zapnutí jisker změní pixely snímku u špičky tahu.
 
 ### 17. [ ] Opakovaný ohňostroj ťukáním do rytmu — M
+- **Model:** Sonnet — rozšíření FireworkEvent podle jasného návrhu.
 - **Cíl:** ohňostroj, který v jednom místě bouchá v pravidelném intervalu. Klávesa `G`:
   1. stisk = první výbuch v místě kurzoru, 2. stisk = druhý výbuch na stejném místě a jeho
   odstup od prvního je interval, dál bouchá sám, 3. stisk opakování ukončí. Když druhý stisk
@@ -276,6 +293,7 @@ Nové klávesy ověř proti obsluze v `main.ts` (dnes obsazené: D, T, F, R, E, 
   `G` během nahrávání vytvoří jeden opakovaný ohňostroj se správným intervalem (tolerance 50 ms).
 
 ### 18. [ ] „Dýchající“ ohňostroj — M
+- **Model:** Sonnet — navazuje na 17, vlastní funkce vykreslení.
 - **Cíl:** ohňostroj, který vybuchne do pravidelného kolečka (jiskry nepadají, drží tvar),
   kolečko vydrží po dobu z nastavení vrstvy „Držení kolečka (s)“ (výchozí 1 s), pak se
   stáhne zpět do bodu — a takhle se opakuje, dokud ho uživatel nevypne. Ovládání jako
