@@ -66,9 +66,11 @@ Aplikace převádějící fyzickou a intuitivní reakci na vážnou hudbu do gra
 
 ## **6. Fázování vývoje** 
 
-**Fáze 1 — MVP (jádro):** Electron shell, černé plátno, import a přehrávání audia, kreslení jedné vrstvy (mizející stopa + ohňostroje), nastavení vzhledu vrstvy, záznam synchronizovaný s audiem, uložení/načtení projektu, export do videa (1920×1080/30fps/MP4). 
+> **Stav realizace (28. 10. 2026):** fáze 1 a 2 jsou hotové, fáze 3 (úpravy křivek, časové okno v režimu úprav) je rozpracovaná. Aktuální ovládání a funkce popisuje [README.md](README.md). Oproti konceptu se v realizaci liší: mizení stopy je řešené ztmavováním barvy k černé (na černém pozadí vypadá stejně jako fade-out opacity, ale nedělá světlé skvrny v místech překryvu) a navíc přibylo vyhlazení čáry, záře, kreslení bez tlačítka pro touchpad (`D` / `T`), celá obrazovka se zámkem kurzoru, odpočet před nahráváním a automatické ukládání se zálohou.
 
-**Fáze 2 — vrstvy a základní timeline úpravy:** Víc pojmenovaných vrstev, overdub nahrávání s možností schovat předchozí vrstvy, zobrazení/skrytí/smazání vrstvy, posun celé vrstvy v čase, rozšíření exportu o další rozlišení/fps/formáty. 
+**Fáze 1 — MVP (jádro):** ✅ hotovo. Electron shell, černé plátno, import a přehrávání audia, kreslení jedné vrstvy (mizející stopa + ohňostroje), nastavení vzhledu vrstvy, záznam synchronizovaný s audiem, uložení/načtení projektu, export do videa (1920×1080/30fps/MP4). 
+
+**Fáze 2 — vrstvy a základní timeline úpravy:** ✅ hotovo. Víc pojmenovaných vrstev, overdub nahrávání s možností schovat předchozí vrstvy, zobrazení/skrytí/smazání vrstvy, posun celé vrstvy v čase, rozšíření exportu o další rozlišení/fps/formáty. 
 
 **Fáze 3 — pokročilé vektorové úpravy:** Konverze nahraného tahu na editovatelnou vektorovou křivku s uzlovými body a bezier handly, posun jednotlivého ohňostroje, kopírování/vkládání částí čáry. 
 

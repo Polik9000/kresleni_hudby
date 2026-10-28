@@ -92,7 +92,7 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
   **Ručně ověřit:** jestli je pásmo dobře vidět a okraje jdou pohodlně chytit (dosah 6 px);
   okraj mimo výřez osy (např. 5 s zpět na začátku skladby) chytit nejde — pak přetočit nebo oddálit.
 
-### 4. [ ] README z větve `ccr` a úklid větví — S — [PARALELNĚ]
+### 4. [x] README z větve `ccr` a úklid větví — S — [PARALELNĚ]
 - **Cíl:** z větve `origin/ccr-4a7bd951-02x0mu` (dokumentace ze 4. 10., stav po fázi 1)
   převzít do README užitečné části a **aktualizovat je na stav po fázi 3**: požadavky
   (Node.js, npm, ffmpeg se instaluje sám), „Jak se s aplikací pracuje“ krok za krokem,
@@ -105,6 +105,12 @@ a `npm run test:e2e` projdou, README a CLAUDE.md odpovídají novému chování.
   `git diff main...origin/ccr-4a7bd951-02x0mu`.
 - **Hotovo, když:** README popisuje aktuální ovládání včetně vrstev, režimu úprav a exportu;
   `git branch -a` už obě větve neukazuje. Pokud už předtím jiný úkol změnil README, sloučit, nepřepsat.
+- **Poznámka (28. 10. 2026):** README doplněno z větve `ccr` a aktualizováno na stav po úkolu 3:
+  požadavky, „Jak se s aplikací pracuje“, tabulka nastavení vrstvy (rozsahy ověřeny v `index.html`
+  a `DEFAULT_STYLE`), Export (všechny formáty a rozlišení), Projekt a ukládání, popis E2E testu,
+  neověřené věci. Do konceptu přidána poznámka o stavu (fáze 1–2 hotové, 3 rozpracovaná).
+  Větev `faze-1-mvp` neměla žádné commity navíc oproti `main`. Obě větve smazány lokálně
+  i na GitHubu. Jen dokumentace, testy se nepouštěly.
 
 ### 5. [ ] Ověření exportních formátů a rozlišení — M — [PARALELNĚ]
 - **Cíl:** formáty H.265, ProRes a 4K nikdo z aplikace nespustil. Napsat test, který přes
